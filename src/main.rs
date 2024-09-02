@@ -28,6 +28,7 @@ struct Company {
     code: [char; 3],
     id: u32,
     stock_price: f32,
+    number_of_stocks: u32,
 }
 
 impl Company {
@@ -36,17 +37,25 @@ impl Company {
             name,
             code,
             id,
-            stock_price
+            stock_price,
+            number_of_stocks: 0,
         }
     }
 }
 
 impl Debug for Company {
     fn fmt(&self, f: &mut Formatter<'_>) -> Result<(), std::fmt::Error> {
-        f.write_fmt(format_args!("{}({})[${}]", self.name, code_str(self.code), self.stock_price))
+        f.write_fmt(format_args!(
+            "{}({})[${}|{}]",
+            self.name,
+            code_str(self.code),
+            self.stock_price,
+            self.number_of_stocks
+        ))
     }
 }
 
+#[derive(Clone)]
 struct Agent {
     id: u32,
     money: f32
@@ -88,7 +97,7 @@ fn deviate_stock(stocks: &mut HashMap<u64, u32>, company_id: u32, agent_id: u32,
     );
 }
 fn get_stock(stocks: &HashMap<u64, u32>, company_id: u32, agent_id: u32) -> u32 {
-    *stocks.get(&get_id(company_id, agent_id)).unwrap_or(&0)
+    stocks.get(&get_id(company_id, agent_id)).unwrap_or(&0).clone()
 }
 
 fn get_code(s: &str) -> [char; 3] {
@@ -158,6 +167,16 @@ impl StockMarket {
         }
         self.companies[company_id as usize].stock_price += deviation;
     }
+    pub fn deviate_number_of_stocks(&mut self, company_id: u32, deviation: i64) {
+        if deviation == 0 {
+            return;
+        }
+        if deviation < 0 {
+            self.companies[company_id as usize].number_of_stocks -= (-deviation) as u32;
+            return;
+        }
+        self.companies[company_id as usize].number_of_stocks += deviation as u32;
+    }
 
     pub fn buy_stock(
         &mut self,
@@ -181,16 +200,17 @@ impl StockMarket {
                 number_of_stocks as i64
             );
         }
-        // updating the stock price
+        // updating the company stock details
         {
             self.deviate_stock_price(company_id, 0.1);
+            self.deviate_number_of_stocks(company_id, number_of_stocks as i64);
         }
         Ok(())
     }
     pub fn sell_stock(
         &mut self,
-        agent_id: u32,
         company_id: u32,
+        agent_id: u32,
         number_of_stocks: u32
     ) -> Result<(), StockSellingError> {
         // transacting the agent
@@ -208,9 +228,10 @@ impl StockMarket {
                 -(number_of_stocks as i64)
             );
         }
-        // updating the stock price
+        // updating the company stock details
         {
             self.deviate_stock_price(company_id, -0.1);
+            self.deviate_number_of_stocks(company_id, -(number_of_stocks as i64));
         }
         Ok(())
     }
@@ -244,24 +265,80 @@ impl Simulation {
     /*
     * All agents buy a random stock from the market
     */
-    pub fn buy_random(&mut self) { todo!() }
+    pub fn buy_random(&mut self) {
+        let mut rng = thread_rng();
+        for agent in self.market.agents.clone().iter() {
+            let action = rng.gen_range(0..=self.market.companies.len());
+            if action == self.market.companies.len() {
+                // don't buy
+                continue;
+            }
+            let company_id = self.market.companies[action].id.clone();
+            _ = self.market.buy_stock(company_id, agent.id, rng.gen_range(0..=5));
+        }
+    }
 
     /*
     * Force a probabilistic amount of agents to buy a specific stock from the market
     */
-    pub fn buy_preferred(&mut self, preferred_company_id: u32, preference_probably: f32) { todo!() }
+    pub fn buy_preferred(&mut self, preferred_company_id: u32, preference_probability: f32) {
+        let mut rng = thread_rng();
+        let preferred_company_id = self.market.companies[preferred_company_id as usize].id.clone();
+        for agent in self.market.agents.clone().iter() {
+            let action = rng.gen_range(0.0..1.0);
+            if action >= preference_probability {
+                // don't buy
+                continue;
+            }
+            _ = self.market.buy_stock(preferred_company_id, agent.id, rng.gen_range(0..=5));
+        }
+    }
 
     /*
     * All agents sell a random stock from the market
     */
-    pub fn sell_random(&mut self) { todo!() }
+    pub fn sell_random(&mut self) {
+        let mut rng = thread_rng();
+        for agent in self.market.agents.clone().iter() {
+            let action = rng.gen_range(0..=self.market.companies.len());
+            if action == self.market.companies.len() {
+                // don't sell
+                continue;
+            }
+            let company_id = self.market.companies[action].id.clone();
+            _ = self.market.sell_stock(company_id, agent.id, rng.gen_range(0..=5));
+        }
+    }
 
     /*
     * Force a probabilistic amount of agents to sell a specific stock from the market
     */
-    pub fn sell_preferred(&mut self, preferred_company_id: u32, preference_probably: f32) { todo!() }
-}
+    pub fn sell_preferred(&mut self, preferred_company_id: u32, preference_probability: f32) {
+        let mut rng = thread_rng();
+        let preferred_company_id = self.market.companies[preferred_company_id as usize].id.clone();
+        for agent in self.market.agents.clone().iter() {
+            let action = rng.gen_range(0.0..1.0);
+            if action >= preference_probability {
+                // don't sell
+                continue;
+            }
+            _ = self.market.sell_stock(preferred_company_id, agent.id, rng.gen_range(0..=5));
+        }
+    }
 
+    /*
+    * All agents either buy or sell a random stock from the market
+    */
+    pub fn trade_random(&mut self) {
+        if rand::random() {
+            self.buy_random();
+            self.buy_preferred(1, 0.8);
+            return;
+        }
+        self.sell_random();
+        self.sell_preferred(0, 0.5);
+    }
+}
 
 fn main() {
     let mut simulation = Simulation::new();
@@ -273,7 +350,20 @@ fn main() {
     
     simulation.spawn_agents(100);
 
-    while true {
-        simulation.buy_random();
+    let mut i = 0;
+    loop {
+        if i % 1000 == 0 {
+            println!("{:?}", simulation.market.companies);
+            println!(
+                "{:?}",
+                simulation.market.agents
+                    .iter()
+                    .map(|agent| agent.money)
+                    .sum::<f32>() / 100.0
+            );
+        }
+
+        simulation.trade_random();
+        i += 1;
     }
 }
