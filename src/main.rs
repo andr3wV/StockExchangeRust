@@ -22,6 +22,7 @@
 use std::collections::HashMap;
 use std::fmt::{Debug, Formatter};
 use rand::{prelude::*, thread_rng};
+use stocks::stats;
 
 struct Company {
     name: String,
@@ -202,7 +203,7 @@ impl StockMarket {
         }
         // updating the company stock details
         {
-            self.deviate_stock_price(company_id, 0.1);
+            self.deviate_stock_price(company_id, 0.1 * (number_of_stocks as f32));
             self.deviate_number_of_stocks(company_id, number_of_stocks as i64);
         }
         Ok(())
@@ -230,7 +231,7 @@ impl StockMarket {
         }
         // updating the company stock details
         {
-            self.deviate_stock_price(company_id, -0.1);
+            self.deviate_stock_price(company_id, -0.1 * (number_of_stocks as f32));
             self.deviate_number_of_stocks(company_id, -(number_of_stocks as i64));
         }
         Ok(())
@@ -352,14 +353,19 @@ fn main() {
 
     let mut i = 0;
     loop {
-        if i % 1000 == 0 {
+        if i == 1000 {
+            break
+        }
+        if i % 100 == 0 {
             println!("{:?}", simulation.market.companies);
-            println!(
-                "{:?}",
-                simulation.market.agents
+            let agent_money: Vec<f32> = simulation.market.agents
                     .iter()
                     .map(|agent| agent.money)
-                    .sum::<f32>() / 100.0
+                    .collect();
+            println!(
+                "{:?} +/- {:?}",
+                stats::mean(agent_money.iter()),
+                stats::standard_deviation(agent_money.iter())
             );
         }
 
