@@ -1,4 +1,7 @@
+use serde::{Deserialize, Serialize};
+
 /// Represents an exchange of captial between 2 agents
+#[derive(Serialize, Deserialize, Debug)]
 pub struct Transaction {
     /// The agent which gave away his shares
     buyer_id: u64,
@@ -12,6 +15,7 @@ pub struct Transaction {
 }
 
 /// Represents the number of shares held by an agent for a particular company
+#[derive(Serialize, Deserialize, Debug)]
 pub struct Holding {
     company_id: u64,
     number_of_shares: u64,
