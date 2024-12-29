@@ -1,12 +1,12 @@
 use std::collections::HashMap;
 
-use crate::trade_house::House;
+use crate::trade_house::TradeHouse;
 use serde::{Deserialize, Serialize};
 
 #[derive(Serialize, Deserialize, Debug)]
 pub struct Market {
     market_values: HashMap<u64, MarketValue>,
-    house: House,
+    house: TradeHouse,
 }
 
 #[derive(Serialize, Deserialize, Debug)]
@@ -28,9 +28,24 @@ struct MarketValue {
 impl Market {
     pub fn new() -> Self {
         Self {
-            house: House::new(),
+            house: TradeHouse::new(),
             market_values: HashMap::new(),
         }
+    }
+}
+
+fn max(a: f64, b: f64) -> f64 {
+    if a > b {
+        a
+    } else {
+        b
+    }
+}
+fn min(a: f64, b: f64) -> f64 {
+    if a < b {
+        a
+    } else {
+        b
     }
 }
 
@@ -43,5 +58,26 @@ impl MarketValue {
             standard_deviation: 0.0,
             recent_transactions_strike_prices: Vec::new(),
         }
+    }
+    pub fn add_transaction(&mut self, price: f64) {
+        self.recent_transactions_strike_prices.push(price);
+    }
+    pub fn tick(&mut self) {
+        if self.recent_transactions_strike_prices.is_empty() {
+            return;
+        }
+        let max = self.recent_transactions_strike_prices.iter().fold(0.0, |a, &b| max(a, b));
+        let min = self.recent_transactions_strike_prices.iter().fold(0.0, |a, &b| min(a, b));
+        let sum: f64 = self.recent_transactions_strike_prices.iter().sum();
+        let avg = sum / self.recent_transactions_strike_prices.len() as f64;
+        let variance = self.recent_transactions_strike_prices.iter().fold(0.0, |a, &b| a + (b - avg).powi(2));
+        let standard_deviation = (variance / self.recent_transactions_strike_prices.len() as f64).sqrt();
+
+        self.highest_price = max;
+        self.lowest_price = min;
+        self.current_price = avg;
+        self.standard_deviation = standard_deviation;
+
+        self.recent_transactions_strike_prices.clear();        
     }
 }

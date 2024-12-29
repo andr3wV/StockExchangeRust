@@ -8,7 +8,6 @@ use serde::{de::DeserializeOwned, Serialize};
 pub mod agent;
 pub mod log;
 pub mod market;
-pub mod stats;
 pub mod trade_house;
 pub mod transaction;
 
