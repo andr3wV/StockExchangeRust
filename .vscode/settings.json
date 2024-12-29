@@ -1,0 +1,12 @@
+{
+  "terminal.integrated.profiles.linux": {
+    "nix-shell": {
+      "path": "nix-shell",
+      "args": ["--command", "zsh"]
+    },
+    "zsh": {
+      "path": "/bin/zsh"
+    }
+  },
+  "terminal.integrated.defaultProfile.linux": null
+}

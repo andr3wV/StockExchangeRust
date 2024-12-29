@@ -14,17 +14,19 @@ pub struct Agent {
     holdings: Vec<Holding>,
 }
 
+pub static SYMBOL_LENGTH: usize = 4;
+
 #[derive(Serialize, Deserialize, Debug)]
 pub struct Company {
     id: u64,
     name: String,
-    code: [char; 3],
+    code: [char; SYMBOL_LENGTH],
     /// Number of total shares
     total_shares: u64,
 }
 
 fn random_string() -> String {
-    return "lmao".to_string();
+    (0..10).map(|_| rand_char()).collect()
 }
 
 fn rand_char() -> char {
@@ -51,7 +53,7 @@ impl Agent {
 }
 
 impl Company {
-    pub fn new(id: u64, name: String, code: [char; 3], total_shares: u64) -> Self {
+    pub fn new(id: u64, name: String, code: [char; SYMBOL_LENGTH], total_shares: u64) -> Self {
         Self {
             id,
             name,
@@ -63,7 +65,7 @@ impl Company {
         Self::new(
             random(),
             random_string(),
-            [rand_char(), rand_char(), rand_char()],
+            (0..SYMBOL_LENGTH).map(|_| rand_char()).collect::<Vec<char>>().try_into().unwrap(),
             random(),
         )
     }
