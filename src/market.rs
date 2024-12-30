@@ -15,7 +15,8 @@ struct MarketValue {
     current_price: f64,
     highest_price: f64,
     lowest_price: f64,
-    standard_deviation: f64,
+    overall_movement_start: f64,
+    overall_movement_end: f64,
 
     /// If the interval is set for 5 seconds
     /// Have a function, called something like tick().
@@ -55,7 +56,8 @@ impl MarketValue {
             current_price: 0.0,
             highest_price: 0.0,
             lowest_price: 0.0,
-            standard_deviation: 0.0,
+            overall_movement_start: 0.0,
+            overall_movement_end: 0.0,
             recent_transactions_strike_prices: Vec::new(),
         }
     }
@@ -64,19 +66,20 @@ impl MarketValue {
     }
     pub fn tick(&mut self) {
         if self.recent_transactions_strike_prices.is_empty() {
+            self.highest_price = self.current_price;
+            self.lowest_price = self.current_price;
             return;
         }
         let max = self.recent_transactions_strike_prices.iter().fold(0.0, |a, &b| max(a, b));
         let min = self.recent_transactions_strike_prices.iter().fold(0.0, |a, &b| min(a, b));
         let sum: f64 = self.recent_transactions_strike_prices.iter().sum();
         let avg = sum / self.recent_transactions_strike_prices.len() as f64;
-        let variance = self.recent_transactions_strike_prices.iter().fold(0.0, |a, &b| a + (b - avg).powi(2));
-        let standard_deviation = (variance / self.recent_transactions_strike_prices.len() as f64).sqrt();
 
         self.highest_price = max;
         self.lowest_price = min;
+        self.overall_movement_start = self.overall_movement_end;
         self.current_price = avg;
-        self.standard_deviation = standard_deviation;
+        self.overall_movement_end = self.recent_transactions_strike_prices.last().unwrap().clone();
 
         self.recent_transactions_strike_prices.clear();        
     }
