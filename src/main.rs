@@ -48,16 +48,33 @@ fn load_from_file(filename: &str) -> Result<Vec<Company>, Box<dyn std::error::Er
 }
 
 fn main() {
-    let agents: Vec<Agent> = load(AGENTS_DATA_FILENAME).unwrap_or(rand_agents());
-    let companies: Vec<Company> = load(COMPANIES_DATA_FILENAME)
-        .unwrap_or(load_from_file("company_data.txt")
+    let agent_file = load(AGENTS_DATA_FILENAME);
+    let company_file = load(COMPANIES_DATA_FILENAME);
+
+    if agent_file.is_ok() {
+        log!(info "Loaded agents");
+    } else {
+        log!(warn "Agents file not found");
+    }
+    if company_file.is_ok() {
+        log!(info "Loaded companies");
+    } else {
+        log!(warn "Company file not found");
+    }
+
+    let agents: Vec<Agent> = agent_file.unwrap_or(rand_agents());
+    let companies: Vec<Company> = company_file.unwrap_or(load_from_file("company_data.txt")
         .unwrap_or(rand_companies()));
 
     if let Err(e) = save(agents, AGENTS_DATA_FILENAME) {
         log!(warn "Failed to save agents data\n{:?}", e);
+    } else {
+        log!(info "Saved agents");
     }
     if let Err(e) = save(companies, COMPANIES_DATA_FILENAME) {
         log!(warn "Failed to save company data\n{:?}", e);
+    } else {
+        log!(info "Saved companies");
     }
-    println!("Hello World");
+    log!(info "Exit");
 }

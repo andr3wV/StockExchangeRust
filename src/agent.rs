@@ -15,6 +15,7 @@ pub struct Agent {
 }
 
 pub static SYMBOL_LENGTH: usize = 4;
+pub static MAX_RANDOM_TOTAL_SHARES: u64 = 16000;
 
 #[derive(Serialize, Deserialize, Debug)]
 pub struct Company {
@@ -66,7 +67,7 @@ impl Company {
             random(),
             random_string(),
             (0..SYMBOL_LENGTH).map(|_| rand_char()).collect::<Vec<char>>().try_into().unwrap(),
-            random(),
+            random::<u64>() % MAX_RANDOM_TOTAL_SHARES,
         )
     }
 }
