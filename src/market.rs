@@ -1,6 +1,6 @@
 use std::collections::HashMap;
 
-use crate::trade_house::{OfferAsk, Trade, TradeHouse};
+use crate::{trade_house::{OfferAsk, Trade, TradeHouse}, transaction::Transaction};
 use serde::{Deserialize, Serialize};
 
 #[derive(Serialize, Deserialize, Debug)]
@@ -32,7 +32,8 @@ struct MarketValueTracker {
 
 pub enum ActionState {
     AddedToOffers,
-    InstantlyResolved,
+    InstantlyResolved(Transaction),
+    PartiallyResolved(Transaction),
 }
 
 impl Market {
@@ -64,14 +65,22 @@ impl Market {
         };
         for offer_id in offer_ids.iter() {
             let offer = all_offers.seller_offers[*offer_id].clone();
+            // Don't autoresolve if it can be slightly worse for us
             if offer.strike_price > strike_price {
                 continue;
             }
             if offer.data.number_of_shares == trade.number_of_shares {
                 self.house.get_mut_trade_offers(company_id).remove_offer(*offer_id);
-                return Ok(ActionState::InstantlyResolved);
+                return Ok(ActionState::InstantlyResolved(Transaction::new(
+                    agent_id,
+                    offer.offerer_id,
+                    company_id,
+                    trade.number_of_shares,
+                    offer.strike_price,
+                )));
             }
 
+            let transaction;
             if offer.data.number_of_shares > trade.number_of_shares {
                 self.house.get_mut_trade_offers(company_id).remove_offer(*offer_id);
                 self.house.add_trade_offer(
@@ -80,6 +89,13 @@ impl Market {
                     offer.strike_price,
                     Trade::new(offer.data.number_of_shares - trade.number_of_shares),
                     OfferAsk::Sell,
+                );
+                transaction = Transaction::new(
+                    agent_id,
+                    offer.offerer_id,
+                    company_id,
+                    trade.number_of_shares,
+                    offer.strike_price,
                 );
             } else {
                 self.house.get_mut_trade_offers(company_id).remove_offer(*offer_id);
@@ -90,8 +106,15 @@ impl Market {
                     Trade::new(trade.number_of_shares - offer.data.number_of_shares),
                     OfferAsk::Buy,
                 );
+                transaction = Transaction::new(
+                    agent_id,
+                    offer.offerer_id,
+                    company_id,
+                    offer.data.number_of_shares,
+                    offer.strike_price,
+                );
             }
-            return Ok(ActionState::AddedToOffers);
+            return Ok(ActionState::PartiallyResolved(transaction));
         }
         return Err(offer_ids);
     }
@@ -117,13 +140,21 @@ impl Market {
         };
         for offer_id in offer_ids.iter() {
             let offer = all_offers.buyer_offers[*offer_id].clone();
+            // Don't autoresolve if it can be slightly worse for us
             if offer.strike_price < strike_price {
                 continue;
             }
             if offer.data.number_of_shares == trade.number_of_shares {
                 self.house.get_mut_trade_offers(company_id).remove_offer(*offer_id);
-                return Ok(ActionState::InstantlyResolved);
+                return Ok(ActionState::InstantlyResolved(Transaction::new(
+                    offer.offerer_id,
+                    agent_id,
+                    company_id,
+                    trade.number_of_shares,
+                    offer.strike_price,
+                )));
             }
+            let transaction;
 
             if offer.data.number_of_shares > trade.number_of_shares {
                 self.house.get_mut_trade_offers(company_id).remove_offer(*offer_id);
@@ -134,6 +165,13 @@ impl Market {
                     Trade::new(offer.data.number_of_shares - trade.number_of_shares),
                     OfferAsk::Buy,
                 );
+                transaction = Transaction::new(
+                    offer.offerer_id,
+                    agent_id,
+                    company_id,
+                    trade.number_of_shares,
+                    offer.strike_price,
+                )
             } else {
                 self.house.get_mut_trade_offers(company_id).remove_offer(*offer_id);
                 self.house.add_trade_offer(
@@ -143,8 +181,15 @@ impl Market {
                     Trade::new(trade.number_of_shares - offer.data.number_of_shares),
                     OfferAsk::Sell,
                 );
+                transaction = Transaction::new(
+                    offer.offerer_id,
+                    agent_id,
+                    company_id,
+                    offer.data.number_of_shares,
+                    offer.strike_price,
+                );
             }
-            return Ok(ActionState::AddedToOffers);
+            return Ok(ActionState::PartiallyResolved(transaction));
         }
         return Err(offer_ids);
     }
