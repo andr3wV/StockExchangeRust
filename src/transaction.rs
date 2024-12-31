@@ -1,5 +1,6 @@
 use std::collections::HashMap;
 use serde::{Deserialize, Serialize};
+use crate::{log, logger::Log};
 
 // Todo Decide if you want to store the Transaction
 /// Represents an exchange of captial between 2 agents
@@ -18,6 +19,7 @@ pub struct Transaction {
 
 impl Transaction {
     pub fn new(buyer_id: u64, seller_id: u64, company_id: u64, number_of_shares: u64, strike_price: f64) -> Self {
+        log!(info "Transaction: buyer_id: {}, seller_id: {}, company_id: {}, number_of_shares: {}, strike_price: {}", buyer_id, seller_id, company_id, number_of_shares, strike_price);
         Self {
             buyer_id,
             seller_id,
@@ -56,14 +58,40 @@ impl Holdings {
             }
         }
     }
-    pub fn pop_from_txn(&mut self, transaction: &Transaction) {
+    pub fn pop_from_txn(&mut self, transaction: &Transaction) -> bool {
         let company = self.holdings.get_mut(&transaction.company_id);
         match company {
             Some(share_count) => {
                 *share_count -= transaction.number_of_shares;
+                return true;
             }
             None => {
-                self.holdings.insert(transaction.company_id, transaction.number_of_shares);
+                return false;
+            }
+        }
+    }
+
+    pub fn push(&mut self, company_id: u64, number_of_shares: u64) {
+        let company = self.holdings.get_mut(&company_id);
+        match company {
+            Some(share_count) => {
+                *share_count += number_of_shares;
+            }
+            None => {
+                self.holdings.insert(company_id, number_of_shares);
+            }
+        }
+    }
+
+    pub fn pop(&mut self, company_id: u64, number_of_shares: u64) -> bool {
+        let company = self.holdings.get_mut(&company_id);
+        match company {
+            Some(share_count) => {
+                *share_count -= number_of_shares;
+                return true;
+            }
+            None => {
+                return false
             }
         }
     }

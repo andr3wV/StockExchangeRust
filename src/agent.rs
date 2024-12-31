@@ -1,4 +1,4 @@
-use crate::transaction::Holdings;
+use crate::{market::MarketValue, transaction::Holdings};
 
 use rand::{random, Rng};
 use serde::{Deserialize, Serialize};
@@ -22,8 +22,7 @@ pub struct Company {
     pub id: u64,
     pub name: String,
     pub code: [char; SYMBOL_LENGTH],
-    /// Number of total shares
-    pub total_shares: u64,
+    pub market_value: MarketValue,
 }
 
 fn random_string() -> String {
@@ -60,12 +59,12 @@ impl Agent {
 }
 
 impl Company {
-    pub fn new(id: u64, name: String, code: [char; SYMBOL_LENGTH], total_shares: u64) -> Self {
+    pub fn new(id: u64, name: String, code: [char; SYMBOL_LENGTH], market_value: MarketValue) -> Self {
         Self {
             id,
             name,
             code,
-            total_shares,
+            market_value,
         }
     }
     pub fn rand() -> Self {
@@ -73,7 +72,7 @@ impl Company {
             random(),
             random_string(),
             (0..SYMBOL_LENGTH).map(|_| rand_char()).collect::<Vec<char>>().try_into().unwrap(),
-            0
+            MarketValue::rand()
         )
     }
 }

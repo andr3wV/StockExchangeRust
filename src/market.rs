@@ -1,6 +1,7 @@
 use std::collections::HashMap;
 
-use crate::{trade_house::{Offer, OfferAsk, Trade, TradeHouse}, transaction::Transaction};
+use crate::{max, min, trade_house::{Offer, OfferAsk, Trade, TradeHouse}, transaction::Transaction};
+use rand::random;
 use serde::{Deserialize, Serialize};
 
 #[derive(Serialize, Deserialize, Debug)]
@@ -12,11 +13,11 @@ pub struct Market {
 #[derive(Serialize, Deserialize, Debug, Clone)]
 pub struct MarketValue {
 /// Current price of a stock as shown for display purposes
-    current_price: f64,
-    highest_price: f64,
-    lowest_price: f64,
-    overall_movement_start: f64,
-    overall_movement_end: f64,
+    pub current_price: f64,
+    pub highest_price: f64,
+    pub lowest_price: f64,
+    pub overall_movement_start: f64,
+    pub overall_movement_end: f64,
 }
 
 #[derive(Serialize, Deserialize, Debug)]
@@ -76,7 +77,7 @@ impl Market {
                 continue;
             }
 
-            all_offers.remove_offer_by_idx(*offer_idx);
+            all_offers.seller_offers.remove(*offer_idx);
             let (transaction, extra_shares_left) = self.buy_trade_offer(company_id, &offer, agent_id, trade);
             if extra_shares_left == 0 {
                 return Ok(ActionState::InstantlyResolved(transaction));
@@ -114,13 +115,17 @@ impl Market {
             self.house.add_trade_offer(agent_id, company_id, strike_price, trade.clone(), OfferAsk::Sell);
             return Ok(ActionState::AddedToOffers);
         };
+        if offer_idxs.len() == 0 {
+            self.house.add_trade_offer(agent_id, company_id, strike_price, trade.clone(), OfferAsk::Sell);
+            return Ok(ActionState::AddedToOffers);
+        }
         for offer_idx in offer_idxs.iter() {
             let offer = all_offers.buyer_offers[*offer_idx].clone();
             // Don't autoresolve if it can be slightly worse for us
             if offer.strike_price < strike_price {
                 continue;
             }
-            all_offers.remove_offer_by_idx(*offer_idx);
+            all_offers.buyer_offers.remove(*offer_idx);
             let (transaction, extra_shares_left) = self.sell_trade_offer(company_id, &offer, agent_id, trade);
             if extra_shares_left == 0 {
                 return Ok(ActionState::InstantlyResolved(transaction));
@@ -232,21 +237,6 @@ impl Market {
     }
 }
 
-fn max<T: PartialOrd>(a: T, b: T) -> T {
-    if a > b {
-        a
-    } else {
-        b
-    }
-}
-fn min<T: PartialOrd>(a: T, b: T) -> T {
-    if a < b {
-        a
-    } else {
-        b
-    }
-}
-
 impl MarketValue {
     pub fn new() -> Self {
         Self {
@@ -255,6 +245,15 @@ impl MarketValue {
             lowest_price: 0.0,
             overall_movement_start: 0.0,
             overall_movement_end: 0.0,
+        }
+    }
+    pub fn rand() -> Self {
+        Self {
+            current_price: random::<f64>() * 100.0,
+            highest_price: random::<f64>() * 100.0,
+            lowest_price: random::<f64>() * 100.0,
+            overall_movement_start: random::<f64>() * 100.0,
+            overall_movement_end: random::<f64>() * 100.0,
         }
     }
 }
@@ -277,8 +276,8 @@ impl MarketValueTracker {
             self.market_value.lowest_price = self.market_value.current_price;
             return self.market_value.clone();
         }
-        let max = self.recent_transactions_strike_prices.iter().fold(0.0, |a, &b| max(a, b));
-        let min = self.recent_transactions_strike_prices.iter().fold(0.0, |a, &b| min(a, b));
+        let max = self.recent_transactions_strike_prices.iter().fold(self.recent_transactions_strike_prices[0], |a, &b| max(a, b));
+        let min = self.recent_transactions_strike_prices.iter().fold(self.recent_transactions_strike_prices[0], |a, &b| min(a, b));
         let sum: f64 = self.recent_transactions_strike_prices.iter().sum();
         let avg = sum / (self.recent_transactions_strike_prices.len() as f64);
 

@@ -20,6 +20,8 @@ pub struct Offers<T> {
 }
 
 /// A specific offer
+/// 
+///todo Allow users to cancel their offers (to get their holdings back)
 #[derive(Serialize, Deserialize, Debug, Clone)]
 pub struct Offer<T> {
     pub id: u64,

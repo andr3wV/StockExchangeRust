@@ -51,3 +51,18 @@ pub fn load<T: DeserializeOwned>(file_path: &str) -> Result<T, DeserializationEr
     };
     return Ok(data);
 }
+
+pub fn max<T: PartialOrd>(a: T, b: T) -> T {
+    if a > b {
+        a
+    } else {
+        b
+    }
+}
+pub fn min<T: PartialOrd>(a: T, b: T) -> T {
+    if a < b {
+        a
+    } else {
+        b
+    }
+}
