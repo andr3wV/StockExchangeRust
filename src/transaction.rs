@@ -1,3 +1,4 @@
+use std::collections::HashMap;
 use serde::{Deserialize, Serialize};
 
 // Todo Decide if you want to store the Transaction
@@ -27,9 +28,43 @@ impl Transaction {
     }
 }
 
-/// Represents the number of shares held by an agent for a particular company
 #[derive(Serialize, Deserialize, Debug)]
-pub struct Holding {
-    company_id: u64,
-    number_of_shares: u64,
+pub struct Holdings {
+    pub holdings: HashMap<u64, u64>,
+}
+
+impl Holdings {
+    pub fn new() -> Self {
+        Self {
+            holdings: HashMap::new(),
+        }
+    }
+    pub fn get(&self, company_id: &u64) -> u64 {
+        match self.holdings.get(company_id) {
+            Some(share_count) => *share_count,
+            None => 0,
+        }
+    }
+    pub fn push_from_txn(&mut self, transaction: &Transaction) {
+        let company = self.holdings.get_mut(&transaction.company_id);
+        match company {
+            Some(share_count) => {
+                *share_count += transaction.number_of_shares;
+            }
+            None => {
+                self.holdings.insert(transaction.company_id, transaction.number_of_shares);
+            }
+        }
+    }
+    pub fn pop_from_txn(&mut self, transaction: &Transaction) {
+        let company = self.holdings.get_mut(&transaction.company_id);
+        match company {
+            Some(share_count) => {
+                *share_count -= transaction.number_of_shares;
+            }
+            None => {
+                self.holdings.insert(transaction.company_id, transaction.number_of_shares);
+            }
+        }
+    }
 }

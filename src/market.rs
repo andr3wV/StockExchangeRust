@@ -30,6 +30,7 @@ struct MarketValueTracker {
     recent_transactions_strike_prices: Vec<f64>,
 }
 
+#[derive(Debug)]
 pub enum ActionState {
     AddedToOffers,
     InstantlyResolved(Transaction),
@@ -58,6 +59,7 @@ impl Market {
             acceptable_strike_price_deviation,
             OfferAsk::Sell,
         );
+
         let all_offers = self.house.get_mut_trade_offers(company_id);
         let Some(offer_idxs) = appropriate_trade_offer else {
             self.house.add_trade_offer(agent_id, company_id, strike_price, trade.clone(), OfferAsk::Buy);

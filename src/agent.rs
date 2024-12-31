@@ -1,9 +1,9 @@
-use crate::transaction::Holding;
+use crate::transaction::Holdings;
 
 use rand::{random, Rng};
 use serde::{Deserialize, Serialize};
 
-static MAX_INITIAL_BALANCE: f64 = 1000.0;
+static MAX_INITIAL_BALANCE: f64 = 100000.0;
 
 #[derive(Serialize, Deserialize, Debug)]
 pub struct Agent {
@@ -11,7 +11,7 @@ pub struct Agent {
     /// How much money does the agent have
     pub balance: f64,
     /// How many shares does an agent hold in a company
-    pub holdings: Vec<Holding>,
+    pub holdings: Holdings,
 }
 
 pub static SYMBOL_LENGTH: usize = 4;
@@ -41,7 +41,7 @@ fn rand_char() -> char {
 }
 
 impl Agent {
-    pub fn new(id: u64, balance: f64, holdings: Vec<Holding>) -> Self {
+    pub fn new(id: u64, balance: f64, holdings: Holdings) -> Self {
         Self {
             id,
             balance,
@@ -49,7 +49,13 @@ impl Agent {
         }
     }
     pub fn rand() -> Self {
-        Self::new(random(), random::<f64>() * MAX_INITIAL_BALANCE, Vec::new())
+        Self::new(random(), random::<f64>() * MAX_INITIAL_BALANCE, Holdings::new())
+    }
+    pub fn can_buy(&self, price: f64, quantity: u64) -> bool {
+        self.balance >= price * quantity as f64
+    }
+    pub fn can_sell(&self, company_id: u64, quantity: u64) -> bool {
+        self.holdings.get(&company_id) >= quantity
     }
 }
 
@@ -67,7 +73,7 @@ impl Company {
             random(),
             random_string(),
             (0..SYMBOL_LENGTH).map(|_| rand_char()).collect::<Vec<char>>().try_into().unwrap(),
-            random::<u64>() % MAX_RANDOM_TOTAL_SHARES,
+            0
         )
     }
 }

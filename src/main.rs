@@ -74,7 +74,9 @@ fn exchange_currency_from_transaction(agents: &mut Vec<Agent>, transaction: &Tra
     // above this line is a way to getting multiple mutable references to the same vector
 
     buyer.balance -= transaction.strike_price * (transaction.number_of_shares as f64);
+    buyer.holdings.push_from_txn(&transaction);
     seller.balance += transaction.strike_price * (transaction.number_of_shares as f64);
+    seller.holdings.pop_from_txn(&transaction);
 }
 
 fn buy_random(
@@ -127,6 +129,7 @@ fn buy_random(
                 );
             }
             market.add_transaction(company_id, transaction.strike_price);
+            exchange_currency_from_transaction(agents, &transaction);
         }
     }
 }
@@ -184,6 +187,24 @@ fn sell_random(
     }
 }
 
+fn get_agent(agents: &Vec<Agent>, agent_id: u64) -> Option<&Agent> {
+    for agent in agents.iter() {
+        if agent.id == agent_id {
+            return Some(agent);
+        }
+    }
+    None
+}
+
+fn give_random_shares_to_random_agents(agents: &mut Vec<Agent>, companies: &Vec<Company>) {
+    // actually, give half agents some shares to random companies
+    for i in 0..(NUM_OF_AGENTS/2) {
+        let agent = &mut agents[i as usize];
+        let random_company = &companies[random::<usize>() % companies.len()];
+        agent.holdings.holdings.insert(random_company.id, random::<u64>() % 1000);
+    }
+}
+
 fn main() {
     let agent_file = load(AGENTS_DATA_FILENAME);
     let company_file = load(COMPANIES_DATA_FILENAME);
@@ -213,8 +234,12 @@ fn main() {
     // 1. The market will ticked 1000 times, and each time every agent will do a random trade
     // 2. The trade will be either buy or sell, and the company will be random
     // 3. The strike price will be 100.0 +- 10.0, and the acceptable strike price deviation will be 5.0
+    // 4. Give random agents some shares to start the buying and selling process
 
-    for _ in 0..1000 {
+    give_random_shares_to_random_agents(&mut agents, &companies);
+
+
+    for _ in 0..10 {
         let _market_values = market.tick();
         for agent_id in agent_ids.iter() {
             let company_id = &company_ids[rand::random::<usize>() % companies.len()];
@@ -223,10 +248,17 @@ fn main() {
             let strike_price = price;
             let acceptable_strike_price_deviation = 5.0;
 
+            let agent = get_agent(&agents, *agent_id).unwrap();
             if random::<f64>() > 0.5 {
-                buy_random(&mut market, &mut agents, *company_id, agent_id, strike_price, acceptable_strike_price_deviation, &trade);
+                if agent.can_buy(strike_price, trade.number_of_shares) {
+                    buy_random(&mut market, &mut agents, *company_id, agent_id, strike_price, acceptable_strike_price_deviation, &trade);
+                    println!("Agent {} bought {} shares of company {} at price {}", agent_id, trade.number_of_shares, company_id, strike_price);
+                }
             } else {
-                sell_random(&mut market, &mut agents, *company_id, agent_id, strike_price, acceptable_strike_price_deviation, &trade);
+                if agent.can_sell(*company_id, trade.number_of_shares) {
+                    sell_random(&mut market, &mut agents, *company_id, agent_id, strike_price, acceptable_strike_price_deviation, &trade);
+                    println!("Agent {} sold {} shares of company {} at price {}", agent_id, trade.number_of_shares, company_id, strike_price);
+                }
             }
         }
     }
