@@ -56,6 +56,7 @@ impl StockOption {
     }
 }
 
+#[derive(PartialEq)]
 pub enum OfferAsk {
     Buy,
     Sell,
@@ -205,6 +206,11 @@ impl<T> Offers<T> {
     pub fn remove_offer(&mut self, offer_id: usize) {
         self.seller_offers.retain(|offer| offer.id != offer_id as u64);
         self.buyer_offers.retain(|offer| offer.id != offer_id as u64);
+    }
+
+    pub fn remove_offer_by_idx(&mut self, index: usize) {
+        self.seller_offers.remove(index);
+        self.buyer_offers.remove(index);
     }
 
     pub fn add_offer(&mut self, trade: Offer<T>, offer_ask: OfferAsk) {

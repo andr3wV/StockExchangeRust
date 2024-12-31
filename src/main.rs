@@ -1,5 +1,13 @@
+use rand::random;
 use stocks::{
-    agent::{Agent, Company, SYMBOL_LENGTH}, load, log, log::Log, market::Market, save, trade_house::{OfferAsk, Trade}
+    agent::{Agent, Company, SYMBOL_LENGTH},
+    load,
+    log,
+    logger::Log,
+    market::{ActionState, Market},
+    save,
+    trade_house::{OfferAsk, Trade},
+    transaction::Transaction,
 };
 use std::io::BufRead;
 
@@ -44,6 +52,138 @@ fn load_from_file(filename: &str) -> Result<Vec<Company>, Box<dyn std::error::Er
     Ok(companies)
 }
 
+fn exchange_currency_from_transaction(agents: &mut Vec<Agent>, transaction: &Transaction) {
+    let mut buyer: Option<&mut Agent> = None;
+    let mut seller: Option<&mut Agent> = None;
+    for agent in agents.iter_mut() {
+        if agent.id == transaction.buyer_id {
+            buyer = Some(agent);
+            continue;
+        }
+        if agent.id == transaction.seller_id {
+            seller = Some(agent);
+            continue;
+        }
+    }
+
+    if buyer.is_none() || seller.is_none() {
+        return;
+    }
+    let buyer = buyer.unwrap();    
+    let seller = seller.unwrap();
+    // above this line is a way to getting multiple mutable references to the same vector
+
+    buyer.balance -= transaction.strike_price * (transaction.number_of_shares as f64);
+    seller.balance += transaction.strike_price * (transaction.number_of_shares as f64);
+}
+
+fn buy_random(
+    market: &mut Market,
+    agents: &mut Vec<Agent>,
+    company_id: u64,
+    agent_id: &u64,
+    strike_price: f64,
+    acceptable_strike_price_deviation: f64,
+    trade: &Trade,
+) {
+    let result = market.buy_trade(*agent_id, company_id, strike_price, acceptable_strike_price_deviation, trade);
+    match result {
+        Ok(action_state) => {
+            match action_state {
+                ActionState::AddedToOffers => {}
+                ActionState::InstantlyResolved(transaction) => {
+                    market.add_transaction(company_id, transaction.strike_price);
+                    exchange_currency_from_transaction(agents, &transaction);
+                }
+                ActionState::PartiallyResolved(transaction) => {
+                    market.add_transaction(company_id, transaction.strike_price);
+                    exchange_currency_from_transaction(agents, &transaction);
+                }
+            }
+        }
+        Err(offer_idxs) => {
+            // 30% chance of accept this offer
+            if random::<f64>() > 0.3 {
+                return;
+            }
+
+            // choose a random offer
+            let offer_idx = offer_idxs[random::<usize>() % offer_idxs.len()];
+            let offer = market.house.get_mut_trade_offers(company_id).seller_offers[offer_idx].clone();
+
+            let (transaction, extra_shares_left) = market.buy_trade_offer(
+                company_id,
+                &offer,
+                *agent_id,
+                trade
+            );
+            if extra_shares_left > 0 {
+                market.house.add_trade_offer(
+                    *agent_id,
+                    company_id,
+                    strike_price,
+                    Trade::new(extra_shares_left),
+                    OfferAsk::Buy,
+                );
+            }
+            market.add_transaction(company_id, transaction.strike_price);
+        }
+    }
+}
+fn sell_random(
+    market: &mut Market,
+    agents: &mut Vec<Agent>,
+    company_id: u64,
+    agent_id: &u64,
+    strike_price: f64,
+    acceptable_strike_price_deviation: f64,
+    trade: &Trade,
+) {
+    let result = market.buy_trade(*agent_id, company_id, strike_price, acceptable_strike_price_deviation, &trade);
+    match result {
+        Ok(action_state) => {
+            match action_state {
+                ActionState::AddedToOffers => {}
+                ActionState::InstantlyResolved(transaction) => {
+                    market.add_transaction(company_id, transaction.strike_price);
+                    exchange_currency_from_transaction(agents, &transaction);
+                }
+                ActionState::PartiallyResolved(transaction) => {
+                    market.add_transaction(company_id, transaction.strike_price);
+                    exchange_currency_from_transaction(agents, &transaction);
+                }
+            }
+        }
+        Err(offer_idxs) => {
+            // 30% chance of accept this offer
+            if random::<f64>() > 0.3 {
+                return;
+            }
+
+            // choose a random offer
+            let offer_idx = offer_idxs[random::<usize>() % offer_idxs.len()];
+            let offer = market.house.get_mut_trade_offers(company_id).seller_offers[offer_idx].clone();
+
+            let (transaction, extra_shares_left) = market.sell_trade_offer(
+                company_id,
+                &offer,
+                *agent_id,
+                trade
+            );
+            if extra_shares_left > 0 {
+                market.house.add_trade_offer(
+                    *agent_id,
+                    company_id,
+                    strike_price,
+                    Trade::new(extra_shares_left),
+                    OfferAsk::Sell,
+                );
+            }
+            market.add_transaction(company_id, transaction.strike_price);
+        }
+    }
+}
+
 fn main() {
     let agent_file = load(AGENTS_DATA_FILENAME);
     let company_file = load(COMPANIES_DATA_FILENAME);
@@ -59,19 +199,35 @@ fn main() {
         log!(warn "Company file not found");
     }
 
-    let agents: Vec<Agent> = agent_file.unwrap_or(rand_agents());
+    let mut agents: Vec<Agent> = agent_file.unwrap_or(rand_agents());
     let companies: Vec<Company> = company_file.unwrap_or(load_from_file("company_data.txt")
         .unwrap_or(rand_companies()));
 
+
     let mut market = Market::new();
 
+    let agent_ids: Vec<u64> = agents.iter().map(|agent| agent.id).collect();
+    let company_ids: Vec<u64> = companies.iter().map(|company| company.id).collect();
+
+    // CURRENT SETUP:
+    // 1. The market will ticked 1000 times, and each time every agent will do a random trade
+    // 2. The trade will be either buy or sell, and the company will be random
+    // 3. The strike price will be 100.0 +- 10.0, and the acceptable strike price deviation will be 5.0
+
     for _ in 0..1000 {
-        let market_values = market.tick();
-        for agent in agents.iter() {
-            let company = &companies[rand::random::<usize>() % companies.len()];
-            let price = 100.0;
+        let _market_values = market.tick();
+        for agent_id in agent_ids.iter() {
+            let company_id = &company_ids[rand::random::<usize>() % companies.len()];
+            let price = 100.0 + (random::<f64>() - 0.5) * 20.0;
             let trade = Trade::new(12);
             let strike_price = price;
+            let acceptable_strike_price_deviation = 5.0;
+
+            if random::<f64>() > 0.5 {
+                buy_random(&mut market, &mut agents, *company_id, agent_id, strike_price, acceptable_strike_price_deviation, &trade);
+            } else {
+                sell_random(&mut market, &mut agents, *company_id, agent_id, strike_price, acceptable_strike_price_deviation, &trade);
+            }
         }
     }
 
