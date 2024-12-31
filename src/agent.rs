@@ -7,11 +7,11 @@ static MAX_INITIAL_BALANCE: f64 = 1000.0;
 
 #[derive(Serialize, Deserialize, Debug)]
 pub struct Agent {
-    id: u64,
+    pub id: u64,
     /// How much money does the agent have
-    balance: f64,
+    pub balance: f64,
     /// How many shares does an agent hold in a company
-    holdings: Vec<Holding>,
+    pub holdings: Vec<Holding>,
 }
 
 pub static SYMBOL_LENGTH: usize = 4;
@@ -19,11 +19,11 @@ pub static MAX_RANDOM_TOTAL_SHARES: u64 = 16000;
 
 #[derive(Serialize, Deserialize, Debug)]
 pub struct Company {
-    id: u64,
-    name: String,
-    code: [char; SYMBOL_LENGTH],
+    pub id: u64,
+    pub name: String,
+    pub code: [char; SYMBOL_LENGTH],
     /// Number of total shares
-    total_shares: u64,
+    pub total_shares: u64,
 }
 
 fn random_string() -> String {

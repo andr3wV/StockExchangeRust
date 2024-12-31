@@ -1,8 +1,5 @@
 use stocks::{
-    agent::{Agent, Company, SYMBOL_LENGTH},
-    load, log,
-    log::Log,
-    save,
+    agent::{Agent, Company, SYMBOL_LENGTH}, load, log, log::Log, market::Market, save, trade_house::{OfferAsk, Trade}
 };
 use std::io::BufRead;
 
@@ -65,6 +62,18 @@ fn main() {
     let agents: Vec<Agent> = agent_file.unwrap_or(rand_agents());
     let companies: Vec<Company> = company_file.unwrap_or(load_from_file("company_data.txt")
         .unwrap_or(rand_companies()));
+
+    let mut market = Market::new();
+
+    for _ in 0..1000 {
+        let market_values = market.tick();
+        for agent in agents.iter() {
+            let company = &companies[rand::random::<usize>() % companies.len()];
+            let price = 100.0;
+            let trade = Trade::new(12);
+            let strike_price = price;
+        }
+    }
 
     if let Err(e) = save(agents, AGENTS_DATA_FILENAME) {
         log!(warn "Failed to save agents data\n{:?}", e);

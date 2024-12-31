@@ -11,34 +11,49 @@ pub struct TradeHouse {
 }
 
 /// All the offers of the certain company
-#[derive(Serialize, Deserialize, Debug)]
+#[derive(Serialize, Deserialize, Debug, Clone)]
 pub struct Offers<T> {
-    seller_offers: Vec<Offer<T>>,
-    buyer_offers: Vec<Offer<T>>,
-    lowest_strike_price: f64,
-    highest_strike_price: f64,
+    pub seller_offers: Vec<Offer<T>>,
+    pub buyer_offers: Vec<Offer<T>>,
+    pub lowest_strike_price: f64,
+    pub highest_strike_price: f64,
 }
 
 /// A specific offer
-#[derive(Serialize, Deserialize, Debug)]
+#[derive(Serialize, Deserialize, Debug, Clone)]
 pub struct Offer<T> {
-    id: u64,
-    offerer_id: u64,
-    strike_price: f64,
-    data: T,
+    pub id: u64,
+    pub offerer_id: u64,
+    pub strike_price: f64,
+    pub data: T,
 }
 
-#[derive(Serialize, Deserialize, Debug)]
+#[derive(Serialize, Deserialize, Debug, Clone)]
 pub struct Trade {
-    number_of_shares: u64,
+    pub number_of_shares: u64,
+}
+impl Trade {
+    pub fn new(number_of_shares: u64) -> Self {
+        Self {
+            number_of_shares,
+        }
+    }
 }
 
 /// A specific option offer
 /// MAYBE RECONSIDER THE ATTRIBUTES
-#[derive(Serialize, Deserialize, Debug)]
+#[derive(Serialize, Deserialize, Debug, Clone)]
 pub struct StockOption {
-    number_of_shares: u64,
-    time_to_expiry: u64,
+    pub number_of_shares: u64,
+    pub time_to_expiry: u64,
+}
+impl StockOption {
+    pub fn new(number_of_shares: u64, time_to_expiry: u64) -> Self {
+        Self {
+            number_of_shares,
+            time_to_expiry,
+        }
+    }
 }
 
 pub enum OfferAsk {
@@ -82,17 +97,17 @@ impl TradeHouse {
         }
     }
 
-    pub fn get_similar_trade_offer(&mut self, company_id: u64, strike_price: f64, offer_ask: OfferAsk) -> Option<Vec<usize>> {
+    pub fn get_appropriate_trade_offer(&mut self, company_id: u64, strike_price: f64, acceptable_strike_price_deviation: f64, offer_ask: OfferAsk) -> Option<Vec<usize>> {
         match offer_ask {
-            OfferAsk::Buy => self.get_similar_buyer_trade_offer(company_id, strike_price),
-            OfferAsk::Sell => self.get_similar_seller_trade_offer(company_id, strike_price),
+            OfferAsk::Buy => self.get_appropriate_buyer_trade_offer(company_id, strike_price, acceptable_strike_price_deviation),
+            OfferAsk::Sell => self.get_appropriate_seller_trade_offer(company_id, strike_price, acceptable_strike_price_deviation),
         }
     }
 
-    pub fn get_similar_option_offer(&mut self, company_id: u64, strike_price: f64, offer_ask: OfferAsk) -> Option<Vec<usize>> {
+    pub fn get_appropriate_option_offer(&mut self, company_id: u64, strike_price: f64, acceptable_strike_price_deviation: f64, offer_ask: OfferAsk) -> Option<Vec<usize>> {
         match offer_ask {
-            OfferAsk::Buy => self.get_similar_buyer_option_offer(company_id, strike_price),
-            OfferAsk::Sell => self.get_similar_seller_option_offer(company_id, strike_price),
+            OfferAsk::Buy => self.get_appropriate_buyer_option_offer(company_id, strike_price, acceptable_strike_price_deviation),
+            OfferAsk::Sell => self.get_appropriate_seller_option_offer(company_id, strike_price, acceptable_strike_price_deviation),
         }
     }
 
@@ -117,14 +132,14 @@ impl TradeHouse {
     }
 
     /// Returns the indices of trade_house.trade_offers which matches the strike_price
-    pub fn get_similar_buyer_trade_offer(&mut self, company_id: u64, strike_price: f64) -> Option<Vec<usize>> {
+    pub fn get_appropriate_buyer_trade_offer(&mut self, company_id: u64, strike_price: f64, acceptable_strike_price_deviation: f64,) -> Option<Vec<usize>> {
         Some(self.trade_offers
             .get(&company_id)?
             .buyer_offers
             .iter()
             .enumerate()
             .filter_map(|(i, offer)| {
-                if offer.strike_price == strike_price {
+                if offer.strike_price >= strike_price - acceptable_strike_price_deviation {
                     return Some(i);
                 }
                 None
@@ -132,14 +147,14 @@ impl TradeHouse {
     }
 
     /// Returns the indices of trade_house.trade_offers which matches the strike_price
-    pub fn get_similar_seller_trade_offer(&mut self, company_id: u64, strike_price: f64) -> Option<Vec<usize>> {
+    pub fn get_appropriate_seller_trade_offer(&mut self, company_id: u64, strike_price: f64, acceptable_strike_price_deviation: f64,) -> Option<Vec<usize>> {
         Some(self.trade_offers
             .get(&company_id)?
             .seller_offers
             .iter()
             .enumerate()
             .filter_map(|(i, offer)| {
-                if offer.strike_price == strike_price {
+                if offer.strike_price <= strike_price + acceptable_strike_price_deviation {
                     return Some(i);
                 }
                 None
@@ -147,14 +162,14 @@ impl TradeHouse {
     }
 
     /// Returns the indices of trade_house.option_offers which matches the strike_price
-    pub fn get_similar_buyer_option_offer(&mut self, company_id: u64, strike_price: f64) -> Option<Vec<usize>> {
+    pub fn get_appropriate_buyer_option_offer(&mut self, company_id: u64, strike_price: f64, acceptable_strike_price_deviation: f64,) -> Option<Vec<usize>> {
         Some(self.option_offers
             .get(&company_id)?
             .buyer_offers
             .iter()
             .enumerate()
             .filter_map(|(i, offer)| {
-                if offer.strike_price == strike_price {
+                if offer.strike_price >= strike_price - acceptable_strike_price_deviation {
                     return Some(i);
                 }
                 None
@@ -162,14 +177,14 @@ impl TradeHouse {
     }
 
     /// Returns the indices of trade_house.option_offers which matches the strike_price
-    pub fn get_similar_seller_option_offer(&mut self, company_id: u64, strike_price: f64) -> Option<Vec<usize>> {
+    pub fn get_appropriate_seller_option_offer(&mut self, company_id: u64, strike_price: f64, acceptable_strike_price_deviation: f64,) -> Option<Vec<usize>> {
         Some(self.option_offers
             .get(&company_id)?
             .seller_offers
             .iter()
             .enumerate()
             .filter_map(|(i, offer)| {
-                if offer.strike_price == strike_price {
+                if offer.strike_price <= strike_price + acceptable_strike_price_deviation {
                     return Some(i);
                 }
                 None
@@ -185,6 +200,11 @@ impl<T> Offers<T> {
             highest_strike_price: 0.0,
             lowest_strike_price: 0.0,
         }
+    }
+
+    pub fn remove_offer(&mut self, offer_id: usize) {
+        self.seller_offers.retain(|offer| offer.id != offer_id as u64);
+        self.buyer_offers.retain(|offer| offer.id != offer_id as u64);
     }
 
     pub fn add_offer(&mut self, trade: Offer<T>, offer_ask: OfferAsk) {
