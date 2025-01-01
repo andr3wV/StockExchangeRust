@@ -262,6 +262,12 @@ fn main() {
     }
 
     let mut market_values = HashMap::new();
+    for company in companies.iter() {
+        market_values.insert(company.id, company.market_value.clone());
+    }
+
+    market.load_market_values(&market_values);
+
     for _ in 0..1000 {
         market_values = market.tick();
         for agent_id in agent_ids.iter() {
