@@ -1,24 +1,8 @@
 use rand::random;
 use stocks::{
-    max,
-    agent::{Agent, Company, SYMBOL_LENGTH},
-    load,
-    log,
-    logger::Log,
-    market::{ActionState, Market, MarketValue},
-    save,
-    trade_house::{OfferAsk, Trade},
-    transaction::Transaction,
+    agent::{Agent, Company, SYMBOL_LENGTH}, load, log, logger::Log, market::{ActionState, Market, MarketValue}, max, save, trade_house::{Offer, OfferAsk, StockOption, Trade}, transaction::Transaction, AGENTS_DATA_FILENAME, COMPANIES_DATA_FILENAME, MIN_STRIKE_PRICE, NUM_OF_AGENTS, NUM_OF_COMPANIES
 };
 use std::{collections::HashMap, io::BufRead};
-
-static NUM_OF_AGENTS: u64 = 1000;
-static NUM_OF_COMPANIES: u64 = 100;
-
-static AGENTS_DATA_FILENAME: &str = "data/agents.yaml";
-static COMPANIES_DATA_FILENAME: &str = "data/companies.yaml";
-
-static MIN_STRIKE_PRICE: f64 = 5.0;
 
 fn rand_agents() -> Vec<Agent> {
     (0..NUM_OF_AGENTS).map(|_| Agent::rand()).collect()
@@ -223,6 +207,27 @@ fn get_market_value_current_price(market_values: &HashMap<u64, MarketValue>, com
     }
 }
 
+fn alert_agents(agents: &mut Vec<Agent>, expired_trades: &HashMap<u64, Vec<Offer<Trade>>>, expired_options: &HashMap<u64, Vec<Offer<StockOption>>>) {
+    for (company_id, offers) in expired_trades.iter() {
+        for offer in offers.iter() {
+            let Some(agent) = get_mut_agent(agents, offer.offerer_id) else {
+                continue;
+            };
+            agent.balance += offer.strike_price * (offer.data.number_of_shares as f64);
+            agent.add_failed_transaction(*company_id, offer.strike_price);
+        }
+    }
+    for (company_id, offers) in expired_options.iter() {
+        for offer in offers {
+            let Some(agent) = get_mut_agent(agents, offer.offerer_id) else {
+                continue;
+            };
+            agent.balance += offer.strike_price * (offer.data.number_of_shares as f64);
+            agent.add_failed_transaction(*company_id, offer.strike_price);
+        }
+    }
+}
+
 fn main() {
     let agent_file = load(AGENTS_DATA_FILENAME);
     let company_file = load(COMPANIES_DATA_FILENAME);
@@ -262,6 +267,9 @@ fn main() {
     }
 
     let mut market_values = HashMap::new();
+    let mut expired_trades = HashMap::new();
+    let mut expired_options = HashMap::new();
+
     for company in companies.iter() {
         market_values.insert(company.id, company.market_value.clone());
     }
@@ -269,7 +277,8 @@ fn main() {
     market.load_market_values(&market_values);
 
     for _ in 0..1000 {
-        market_values = market.tick();
+        (market_values, expired_trades, expired_options) = market.tick();
+        alert_agents(&mut agents, &expired_trades, &expired_options);
         for agent_id in agent_ids.iter() {
             let company_id = &company_ids[rand::random::<usize>() % companies.len()];
             let strike_price = max(MIN_STRIKE_PRICE, get_market_value_current_price(&market_values, company_id) + (random::<f64>() - 0.5) * 20.0);
@@ -279,12 +288,18 @@ fn main() {
             let agent = get_agent(&agents, *agent_id).unwrap();
             if random::<f64>() > 0.5 {
                 if agent.can_buy(strike_price, trade.number_of_shares) {
-                    get_mut_agent(&mut agents, *agent_id).unwrap().holdings.push(*company_id, trade.number_of_shares);
+                    let Some(mut_agent) = get_mut_agent(&mut agents, *agent_id) else {
+                        continue;
+                    };
+                    mut_agent.holdings.push(*company_id, trade.number_of_shares);
                     buy_random(&mut market, &mut agents, *company_id, agent_id, strike_price, acceptable_strike_price_deviation, &trade);
                 }
             } else {
                 if agent.can_sell(*company_id, trade.number_of_shares) {
-                    get_mut_agent(&mut agents, *agent_id).unwrap().holdings.pop(*company_id, trade.number_of_shares);
+                    let Some(mut_agent) = get_mut_agent(&mut agents, *agent_id) else {
+                        continue;
+                    };
+                    mut_agent.holdings.pop(*company_id, trade.number_of_shares);
                     sell_random(&mut market, &mut agents, *company_id, agent_id, strike_price, acceptable_strike_price_deviation, &trade);
                 }
             }

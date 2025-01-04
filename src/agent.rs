@@ -1,3 +1,5 @@
+use std::collections::HashMap;
+
 use crate::{market::MarketValue, transaction::Holdings};
 
 use rand::{random, Rng};
@@ -12,6 +14,7 @@ pub struct Agent {
     pub balance: f64,
     /// How many shares does an agent hold in a company
     pub holdings: Holdings,
+    pub try_transactions: HashMap<u64, f64>,
 }
 
 pub static SYMBOL_LENGTH: usize = 4;
@@ -45,6 +48,7 @@ impl Agent {
             id,
             balance,
             holdings,
+            try_transactions: HashMap::new(),
         }
     }
     pub fn rand() -> Self {
@@ -55,6 +59,9 @@ impl Agent {
     }
     pub fn can_sell(&self, company_id: u64, quantity: u64) -> bool {
         self.holdings.get(&company_id) >= quantity
+    }
+    pub fn add_failed_transaction(&mut self, company_id: u64, failed_price: f64) {
+        self.try_transactions.insert(company_id, failed_price * 1.25);
     }
 }
 

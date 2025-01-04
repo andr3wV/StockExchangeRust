@@ -11,6 +11,15 @@ pub mod market;
 pub mod trade_house;
 pub mod transaction;
 
+pub static NUM_OF_AGENTS: u64 = 1000;
+pub static NUM_OF_COMPANIES: u64 = 100;
+
+pub static AGENTS_DATA_FILENAME: &str = "data/agents.yaml";
+pub static COMPANIES_DATA_FILENAME: &str = "data/companies.yaml";
+
+pub static MIN_STRIKE_PRICE: f64 = 5.0;
+pub static OFFER_LIFETIME: u64 = 1000;
+
 #[derive(Debug)]
 pub enum SerializationError {
     FailedToCreateFile,
