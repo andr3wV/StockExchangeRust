@@ -62,6 +62,19 @@ fn get_market_value_current_price(
     }
 }
 
+fn roll_action(agent: &Agent, company_id: &u64, strike_price: f64, trade: &Trade) -> Option<TradeAction> {
+    if random::<f64>() > 0.5 {
+        if !agent.can_buy(strike_price, trade.number_of_shares) {
+            return None;
+        }
+        return Some(TradeAction::Buy);
+    }
+    if !agent.can_sell(*company_id, trade.number_of_shares) {
+        return None
+    }
+    return Some(TradeAction::Sell);
+}
+
 fn main() {
     let agent_file = load(AGENTS_DATA_FILENAME);
     let company_file = load(COMPANIES_DATA_FILENAME);
@@ -100,14 +113,14 @@ fn main() {
         agents.give_random_shares_to_half_agents(&companies.company_ids);
     }
 
-    let mut market_values: HashMap<u64, MarketValue> = HashMap::new();
     let mut expired_trades: HashMap<u64, Vec<FailedOffer<Trade>>>;
     let mut expired_options: HashMap<u64, Vec<FailedOffer<StockOption>>>;
+
+    let mut market_values: HashMap<u64, MarketValue> = HashMap::new();
+    companies.load_market_values(&mut market_values);
+    market.dump_market_values(&market_values);
+
     let mut todo_transactions: Vec<TodoTransactions> = Vec::new();
-
-
-    market.load_market_values(&market_values);
-
     for i in 0..100 {
         println!("{}", i);
         (market_values, expired_trades, expired_options) = market.tick();
@@ -122,22 +135,14 @@ fn main() {
             );
             let trade = Trade::new(12);
 
-            agents.run_through_failed_transactions(&mut todo_transactions, *agent_id, &trade);
             let Some(agent) = agents.get_agent(*agent_id) else {
                 continue;
             };
-            let action: TradeAction;
-            if random::<f64>() > 0.5 {
-                if !agent.can_buy(strike_price, trade.number_of_shares) {
-                    continue;
-                }
-                action = TradeAction::Buy;
-            } else {
-                if !agent.can_sell(company_id, trade.number_of_shares) {
-                    continue;
-                }
-                action = TradeAction::Sell;
-            }
+            agent.try_failed_offers(&mut todo_transactions, *agent_id, &trade);
+            let action = match roll_action(agent, &company_id, strike_price, &trade) {
+                Some(action) => action,
+                None => continue,
+            };
             todo_transactions.push(TodoTransactions {
                 agent_id: *agent_id,
                 company_id,

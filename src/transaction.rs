@@ -97,15 +97,19 @@ impl Holdings {
         }
     }
 
-    pub fn pop(&mut self, company_id: u64, number_of_shares: u64) -> bool {
+    pub fn pop(&mut self, company_id: u64, number_of_shares: u64) -> Result<(), ()> {
         let company = self.0.get_mut(&company_id);
         match company {
             Some(share_count) => {
+                if *share_count < number_of_shares {
+                    return Err(());
+                }
+
                 *share_count -= number_of_shares;
-                return true;
+                return Ok(());
             }
             None => {
-                return false;
+                return Err(());
             }
         }
     }

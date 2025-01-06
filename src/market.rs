@@ -50,7 +50,7 @@ impl Market {
         }
     }
 
-    pub fn load_market_values(&mut self, market_values: &HashMap<u64, MarketValue>) {
+    pub fn dump_market_values(&mut self, market_values: &HashMap<u64, MarketValue>) {
         for (company_id, market_value) in market_values.iter() {
             let mut tracker = MarketValueTracker::new();
             tracker.market_value = market_value.clone();
