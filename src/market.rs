@@ -1,6 +1,6 @@
 use std::collections::HashMap;
 
-use crate::{max, min, trade_house::{FailedOffer, Offer, OfferAsk, StockOption, Trade, TradeHouse}, transaction::Transaction};
+use crate::{max, min, trade_house::{FailedOffer, Offer, TradeAction, StockOption, Trade, TradeHouse}, transaction::{self, Transaction}};
 use rand::random;
 use serde::{Deserialize, Serialize};
 
@@ -54,108 +54,92 @@ impl Market {
         }
     }
 
-    pub fn buy_trade(
+    pub fn trade(
         &mut self,
         agent_id: u64,
         company_id: u64,
         strike_price: f64,
         acceptable_strike_price_deviation: f64,
         trade: &Trade,
-      ) -> Result<ActionState, Vec<usize>>  {
-        let appropriate_trade_offer = self.house.get_appropriate_trade_offer(
-            company_id,
-            strike_price,
-            acceptable_strike_price_deviation,
-            OfferAsk::Sell,
-        );
-
-        let all_offers = self.house.get_mut_trade_offers(company_id);
-        let Some(offer_idxs) = appropriate_trade_offer else {
-            self.house.add_trade_offer(agent_id, company_id, strike_price, trade.clone(), OfferAsk::Buy);
-            return Ok(ActionState::AddedToOffers);
-        };
-        if offer_idxs.len() == 0 {
-            self.house.add_trade_offer(agent_id, company_id, strike_price, trade.clone(), OfferAsk::Buy);
-            return Ok(ActionState::AddedToOffers);
-        }
-        for offer_idx in offer_idxs.iter() {
-            let offer = all_offers.seller_offers[*offer_idx].clone();
-            // Don't autoresolve if it can be slightly worse for us
-            if offer.strike_price > strike_price {
-                continue;
-            }
-
-            all_offers.seller_offers.remove(*offer_idx);
-            let (transaction, extra_shares_left) = self.buy_trade_offer(company_id, &offer, agent_id, trade);
-            if extra_shares_left == 0 {
-                return Ok(ActionState::InstantlyResolved(transaction));
-            }
-
-            self.house.add_trade_offer(
-                agent_id,
-                company_id,
-                strike_price,
-                Trade::new(extra_shares_left),
-                OfferAsk::Buy,
-            );
-
-            return Ok(ActionState::PartiallyResolved(transaction));
-        }
-        return Err(offer_idxs);
-    }
-
-    pub fn sell_trade(
-        &mut self,
-        agent_id: u64,
-        company_id: u64,
-        strike_price: f64,
-        acceptable_strike_price_deviation: f64,
-        trade: &Trade,
+        action: TradeAction,
     ) -> Result<ActionState, Vec<usize>> {
         let appropriate_trade_offer = self.house.get_appropriate_trade_offer(
             company_id,
             strike_price,
             acceptable_strike_price_deviation,
-            OfferAsk::Buy,
+            action.complement(),
         );
+
         let all_offers = self.house.get_mut_trade_offers(company_id);
         let Some(offer_idxs) = appropriate_trade_offer else {
-            self.house.add_trade_offer(agent_id, company_id, strike_price, trade.clone(), OfferAsk::Sell);
+            self.house.add_trade_offer(
+                agent_id,
+                company_id,
+                strike_price,
+                trade.clone(),
+                action
+            );
             return Ok(ActionState::AddedToOffers);
         };
         if offer_idxs.len() == 0 {
-            self.house.add_trade_offer(agent_id, company_id, strike_price, trade.clone(), OfferAsk::Sell);
+            self.house.add_trade_offer(
+                agent_id,
+                company_id,
+                strike_price,
+                trade.clone(),
+                action
+            );
             return Ok(ActionState::AddedToOffers);
         }
+        let target_offer = match action {
+            TradeAction::Buy => &mut all_offers.seller_offers,
+            TradeAction::Sell => &mut all_offers.buyer_offers,
+        };
+
         for offer_idx in offer_idxs.iter() {
-            let offer = all_offers.buyer_offers[*offer_idx].clone();
+            let offer = target_offer[*offer_idx].clone();
             // Don't autoresolve if it can be slightly worse for us
-            if offer.strike_price < strike_price {
+            if offer.strike_price > strike_price {
                 continue;
             }
-            all_offers.buyer_offers.remove(*offer_idx);
-            let (transaction, extra_shares_left) = self.sell_trade_offer(company_id, &offer, agent_id, trade);
+
+            target_offer.remove(*offer_idx);
+            let (transaction, extra_shares_left) = self.trade_offer(
+                company_id,
+                &offer,
+                agent_id,
+                trade,
+                action.clone(),
+            );
+
             if extra_shares_left == 0 {
                 return Ok(ActionState::InstantlyResolved(transaction));
             }
+
             self.house.add_trade_offer(
                 agent_id,
                 company_id,
                 strike_price,
                 Trade::new(extra_shares_left),
-                OfferAsk::Sell,
+                action,
             );
+
             return Ok(ActionState::PartiallyResolved(transaction));
         }
         return Err(offer_idxs);
     }
 
     /// ! Does not remove the offer from the trade house
-    pub fn buy_trade_offer(&mut self, company_id: u64, offer: &Offer<Trade>, accepter_id: u64, trade: &Trade) -> (Transaction, u64) {
+    pub fn trade_offer(&mut self, company_id: u64, offer: &Offer<Trade>, accepter_id: u64, trade: &Trade, action: TradeAction) -> (Transaction, u64) {
+        let (buyer_id, seller_id) = match action {
+            TradeAction::Buy => (accepter_id, offer.offerer_id),
+            TradeAction::Sell => (offer.offerer_id, accepter_id),
+        };
+
         if offer.data.number_of_shares == trade.number_of_shares {
             return (Transaction::new(
-                accepter_id,
-                offer.offerer_id,
+                buyer_id,
+                seller_id,
                 company_id,
                 trade.number_of_shares,
                 offer.strike_price,
@@ -169,58 +153,19 @@ impl Market {
                 company_id,
                 offer.strike_price,
                 Trade::new(offer.data.number_of_shares - trade.number_of_shares),
-                OfferAsk::Sell,
+                TradeAction::Sell,
             );
             transaction = Transaction::new(
-                accepter_id,
-                offer.offerer_id,
+                buyer_id,
+                seller_id,
                 company_id,
                 trade.number_of_shares,
                 offer.strike_price,
             );
         } else {
             transaction = Transaction::new(
-                accepter_id,
-                offer.offerer_id,
-                company_id,
-                offer.data.number_of_shares,
-                offer.strike_price,
-            );
-        }
-        return (transaction, max(0, trade.number_of_shares - offer.data.number_of_shares));
-    }
-
-    pub fn sell_trade_offer(&mut self, company_id: u64, offer: &Offer<Trade>, accepter_id: u64, trade: &Trade) -> (Transaction, u64) {
-        if offer.data.number_of_shares == trade.number_of_shares {
-            return (Transaction::new(
-                offer.offerer_id,
-                accepter_id,
-                company_id,
-                trade.number_of_shares,
-                offer.strike_price,
-            ), 0);
-        }
-
-        let transaction;
-        if offer.data.number_of_shares > trade.number_of_shares {
-            self.house.add_trade_offer(
-                offer.offerer_id,
-                company_id,
-                offer.strike_price,
-                Trade::new(offer.data.number_of_shares - trade.number_of_shares),
-                OfferAsk::Buy,
-            );
-            transaction = Transaction::new(
-                offer.offerer_id,
-                accepter_id,
-                company_id,
-                trade.number_of_shares,
-                offer.strike_price,
-            );
-        } else {
-            transaction = Transaction::new(
-                offer.offerer_id,
-                accepter_id,
+                buyer_id,
+                seller_id,
                 company_id,
                 offer.data.number_of_shares,
                 offer.strike_price,

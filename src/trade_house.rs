@@ -2,7 +2,7 @@ use std::collections::HashMap;
 
 use rand::random;
 use serde::{Deserialize, Serialize};
-use crate::{OFFER_LIFETIME};
+use crate::OFFER_LIFETIME;
 
 /// Basically stores all the requested trades that weren't immediately resolved
 #[derive(Serialize, Deserialize, Debug)]
@@ -44,7 +44,7 @@ impl Trade {
     }
 }
 
-pub struct FailedOffer<T: Clone>(pub Offer<T>, pub OfferAsk);
+pub struct FailedOffer<T: Clone>(pub Offer<T>, pub TradeAction);
 
 /// A specific option offer
 /// MAYBE RECONSIDER THE ATTRIBUTES
@@ -62,10 +62,19 @@ impl StockOption {
     }
 }
 
-#[derive(PartialEq)]
-pub enum OfferAsk {
+#[derive(PartialEq, Clone)]
+pub enum TradeAction {
     Buy,
     Sell,
+}
+
+impl TradeAction {
+    pub fn complement(&self) -> Self {
+        match self {
+            TradeAction::Buy => TradeAction::Sell,
+            TradeAction::Sell => TradeAction::Buy,
+        }
+    }
 }
 
 impl TradeHouse {
@@ -90,31 +99,31 @@ impl TradeHouse {
         self.option_offers.get_mut(&company_id).unwrap()
     }
 
-    pub fn add_trade_offer(&mut self, offerer_id: u64, company_id: u64, strike_price: f64, trade: Trade, offer_ask: OfferAsk) {
+    pub fn add_trade_offer(&mut self, offerer_id: u64, company_id: u64, strike_price: f64, trade: Trade, offer_ask: TradeAction) {
         match offer_ask {
-            OfferAsk::Buy => self.add_buyer_trade_offer(offerer_id, company_id, strike_price, trade),
-            OfferAsk::Sell => self.add_seller_trade_offer(offerer_id, company_id, strike_price, trade),
+            TradeAction::Buy => self.add_buyer_trade_offer(offerer_id, company_id, strike_price, trade),
+            TradeAction::Sell => self.add_seller_trade_offer(offerer_id, company_id, strike_price, trade),
         }
     }
 
-    pub fn add_option_offer(&mut self, offerer_id: u64, company_id: u64, strike_price: f64, option: StockOption, offer_ask: OfferAsk) {
+    pub fn add_option_offer(&mut self, offerer_id: u64, company_id: u64, strike_price: f64, option: StockOption, offer_ask: TradeAction) {
         match offer_ask {
-            OfferAsk::Buy => self.add_buyer_option_offer(offerer_id, company_id, strike_price, option),
-            OfferAsk::Sell => self.add_seller_option_offer(offerer_id, company_id, strike_price, option),
+            TradeAction::Buy => self.add_buyer_option_offer(offerer_id, company_id, strike_price, option),
+            TradeAction::Sell => self.add_seller_option_offer(offerer_id, company_id, strike_price, option),
         }
     }
 
-    pub fn get_appropriate_trade_offer(&mut self, company_id: u64, strike_price: f64, acceptable_strike_price_deviation: f64, offer_ask: OfferAsk) -> Option<Vec<usize>> {
+    pub fn get_appropriate_trade_offer(&mut self, company_id: u64, strike_price: f64, acceptable_strike_price_deviation: f64, offer_ask: TradeAction) -> Option<Vec<usize>> {
         match offer_ask {
-            OfferAsk::Buy => self.get_appropriate_buyer_trade_offer(company_id, strike_price, acceptable_strike_price_deviation),
-            OfferAsk::Sell => self.get_appropriate_seller_trade_offer(company_id, strike_price, acceptable_strike_price_deviation),
+            TradeAction::Buy => self.get_appropriate_buyer_trade_offer(company_id, strike_price, acceptable_strike_price_deviation),
+            TradeAction::Sell => self.get_appropriate_seller_trade_offer(company_id, strike_price, acceptable_strike_price_deviation),
         }
     }
 
-    pub fn get_appropriate_option_offer(&mut self, company_id: u64, strike_price: f64, acceptable_strike_price_deviation: f64, offer_ask: OfferAsk) -> Option<Vec<usize>> {
+    pub fn get_appropriate_option_offer(&mut self, company_id: u64, strike_price: f64, acceptable_strike_price_deviation: f64, offer_ask: TradeAction) -> Option<Vec<usize>> {
         match offer_ask {
-            OfferAsk::Buy => self.get_appropriate_buyer_option_offer(company_id, strike_price, acceptable_strike_price_deviation),
-            OfferAsk::Sell => self.get_appropriate_seller_option_offer(company_id, strike_price, acceptable_strike_price_deviation),
+            TradeAction::Buy => self.get_appropriate_buyer_option_offer(company_id, strike_price, acceptable_strike_price_deviation),
+            TradeAction::Sell => self.get_appropriate_seller_option_offer(company_id, strike_price, acceptable_strike_price_deviation),
         }
     }
 
@@ -237,10 +246,10 @@ impl<T: Clone> Offers<T> {
         self.buyer_offers.remove(index);
     }
 
-    pub fn add_offer(&mut self, trade: Offer<T>, offer_ask: OfferAsk) {
+    pub fn add_offer(&mut self, trade: Offer<T>, offer_ask: TradeAction) {
         match offer_ask {
-            OfferAsk::Buy => self.add_buyer_offer(trade),
-            OfferAsk::Sell => self.add_seller_offer(trade),
+            TradeAction::Buy => self.add_buyer_offer(trade),
+            TradeAction::Sell => self.add_seller_offer(trade),
         }
     }
 
@@ -270,14 +279,14 @@ impl<T: Clone> Offers<T> {
             let Some(offer) = self.seller_offers[i].tick() else {
                 continue;
             };
-            expired_offers.push(FailedOffer(offer, OfferAsk::Sell));
+            expired_offers.push(FailedOffer(offer, TradeAction::Sell));
             self.seller_offers.remove(i);
         }
         for i in (0..self.buyer_offers.len()).rev() {
             let Some(offer) = self.buyer_offers[i].tick() else {
                 continue;
             };
-            expired_offers.push(FailedOffer(offer, OfferAsk::Buy));
+            expired_offers.push(FailedOffer(offer, TradeAction::Buy));
             self.buyer_offers.remove(i);
         }
         expired_offers
