@@ -1,4 +1,4 @@
-use crate::{log, logger::Log};
+use crate::{log, logger::Log, trade_house::{Trade, TradeAction}};
 use serde::{Deserialize, Serialize};
 use std::collections::HashMap;
 
@@ -36,7 +36,15 @@ impl Transaction {
     }
 }
 
-#[derive(Serialize, Deserialize, Debug)]
+pub struct TodoTransactions {
+    pub agent_id: u64,
+    pub company_id: u64,
+    pub strike_price: f64,
+    pub action: TradeAction,
+    pub trade: Trade,
+}
+
+#[derive(Serialize, Deserialize, Debug, Clone)]
 pub struct Holdings(HashMap<u64, u64>);
 
 impl Holdings {
