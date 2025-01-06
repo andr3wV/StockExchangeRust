@@ -1,21 +1,16 @@
 use rand::random;
+use std::{collections::HashMap, io::BufRead};
 use stocks::{
     agent::{Agent, Company, SYMBOL_LENGTH},
-    load,
-    log,
+    load, log,
     logger::Log,
     market::{ActionState, Market, MarketValue},
-    max,
-    save,
-    trade_house::{FailedOffer, TradeAction, StockOption, Trade},
+    max, save,
+    trade_house::{FailedOffer, StockOption, Trade, TradeAction},
     transaction::Transaction,
-    AGENTS_DATA_FILENAME,
-    COMPANIES_DATA_FILENAME,
-    MIN_STRIKE_PRICE,
-    NUM_OF_AGENTS,
-    NUM_OF_COMPANIES
+    AGENTS_DATA_FILENAME, COMPANIES_DATA_FILENAME, MIN_STRIKE_PRICE, NUM_OF_AGENTS,
+    NUM_OF_COMPANIES,
 };
-use std::{collections::HashMap, io::BufRead};
 
 fn rand_agents() -> Vec<Agent> {
     (0..NUM_OF_AGENTS).map(|_| Agent::rand()).collect()
@@ -45,10 +40,15 @@ fn load_from_file(filename: &str) -> Result<Vec<Company>, Box<dyn std::error::Er
             let mut iter = line.split('|');
             let name = iter.next().unwrap().to_string();
             let symbol = iter.next().unwrap().to_string();
-            Company::new(i as u64, name, convert_to_symbol(symbol), MarketValue::rand())
+            Company::new(
+                i as u64,
+                name,
+                convert_to_symbol(symbol),
+                MarketValue::rand(),
+            )
         })
         .collect();
-    
+
     Ok(companies)
 }
 
@@ -69,7 +69,7 @@ fn exchange_currency_from_transaction(agents: &mut Vec<Agent>, transaction: &Tra
     if buyer.is_none() || seller.is_none() {
         return;
     }
-    let buyer = buyer.unwrap();    
+    let buyer = buyer.unwrap();
     let seller = seller.unwrap();
     // above this line is a way to getting multiple mutable references to the same vector
 
@@ -78,7 +78,12 @@ fn exchange_currency_from_transaction(agents: &mut Vec<Agent>, transaction: &Tra
     seller.balance += transaction.strike_price * (transaction.number_of_shares as f64);
 }
 
-fn handle_action_state(action_state: ActionState, market: &mut Market, agents: &mut Vec<Agent>, company_id: u64) {
+fn handle_action_state(
+    action_state: ActionState,
+    market: &mut Market,
+    agents: &mut Vec<Agent>,
+    company_id: u64,
+) {
     match action_state {
         ActionState::AddedToOffers => {}
         ActionState::InstantlyResolved(transaction) => {
@@ -92,23 +97,31 @@ fn handle_action_state(action_state: ActionState, market: &mut Market, agents: &
     }
 }
 
-fn handle_offer_idxs(offer_idxs: Vec<usize>, market: &mut Market, company_id: u64, agent_id: u64, strike_price: f64, trade: &Trade, action: TradeAction) {
+fn handle_offer_idxs(
+    offer_idxs: Vec<usize>,
+    market: &mut Market,
+    company_id: u64,
+    agent_id: u64,
+    strike_price: f64,
+    trade: &Trade,
+    action: TradeAction,
+) {
     // 30% chance of accept this offer
     if random::<f64>() > 0.3 {
         return;
     }
 
+    let target_offers = match action {
+        TradeAction::Buy => &market.house.get_mut_trade_offers(company_id).seller_offers,
+        TradeAction::Sell => &market.house.get_mut_trade_offers(company_id).buyer_offers,
+    };
+
     // choose a random offer
     let offer_idx = offer_idxs[random::<usize>() % offer_idxs.len()];
-    let offer = market.house.get_mut_trade_offers(company_id).buyer_offers[offer_idx].clone();
+    let offer = target_offers[offer_idx].clone();
 
-    let (transaction, extra_shares_left) = market.trade_offer(
-        company_id,
-        &offer,
-        agent_id,
-        trade,
-        action.clone(),
-    );
+    let (transaction, extra_shares_left) =
+        market.trade_offer(company_id, &offer, agent_id, trade, action.clone());
     if extra_shares_left > 0 {
         market.house.add_trade_offer(
             agent_id,
@@ -121,63 +134,80 @@ fn handle_offer_idxs(offer_idxs: Vec<usize>, market: &mut Market, company_id: u6
     market.add_transaction(company_id, transaction.strike_price);
 }
 
+fn get_agent<'a>(agents: &'a Vec<Agent>, agents_search: &'a HashMap<u64, usize>, agent_id: u64) -> Option<&'a Agent> {
+    let agent_idx = agents_search.get(&agent_id)?;
+    agents.get(*agent_idx)
+}
+fn get_mut_agent<'a>(agents: &'a mut Vec<Agent>, agents_search: &'a HashMap<u64, usize>, agent_id: u64) -> Option<&'a mut Agent> {
+    let agent_idx = agents_search.get(&agent_id)?;
+    agents.get_mut(*agent_idx)
+}
+
 fn trade_random(
     market: &mut Market,
     agents: &mut Vec<Agent>,
+    agents_search: &HashMap<u64, usize>,
     company_id: u64,
     agent_id: u64,
     strike_price: f64,
     acceptable_strike_price_deviation: f64,
     trade: &Trade,
-    action: TradeAction
+    action: TradeAction,
 ) {
-    let result = market.trade(agent_id, company_id, strike_price, acceptable_strike_price_deviation, trade, action.clone());
-    let agent = get_mut_agent(agents, agent_id).unwrap();
+    let result = market.trade(
+        agent_id,
+        company_id,
+        strike_price,
+        acceptable_strike_price_deviation,
+        trade,
+        action.clone(),
+    );
+    let agent = get_mut_agent(agents, agents_search, agent_id).unwrap();
     agent.holdings.push(company_id, trade.number_of_shares);
     match result {
         Ok(action_state) => handle_action_state(action_state, market, agents, company_id),
-        Err(offer_idxs) => handle_offer_idxs(offer_idxs, market, company_id, agent_id, strike_price, trade, action),
+        Err(offer_idxs) => handle_offer_idxs(
+            offer_idxs,
+            market,
+            company_id,
+            agent_id,
+            strike_price,
+            trade,
+            action,
+        ),
     }
-}
-
-fn get_agent(agents: &Vec<Agent>, agent_id: u64) -> Option<&Agent> {
-    for agent in agents.iter() {
-        if agent.id == agent_id {
-            return Some(agent);
-        }
-    }
-    None
-}
-
-fn get_mut_agent(agents: &mut Vec<Agent>, agent_id: u64) -> Option<&mut Agent> {
-    for agent in agents.iter_mut() {
-        if agent.id == agent_id {
-            return Some(agent);
-        }
-    }
-    None
 }
 
 fn give_random_shares_to_random_agents(agents: &mut Vec<Agent>, companies: &Vec<Company>) {
     // actually, give half agents some shares to random companies
-    for i in 0..(NUM_OF_AGENTS/2) {
+    for i in 0..(NUM_OF_AGENTS / 2) {
         let agent = &mut agents[i as usize];
         let random_company = &companies[random::<usize>() % companies.len()];
-        agent.holdings.holdings.insert(random_company.id, random::<u64>() % 1000);
+        agent
+            .holdings
+            .insert(random_company.id, random::<u64>() % 1000);
     }
 }
 
-fn get_market_value_current_price(market_values: &HashMap<u64, MarketValue>, company_id: &u64) -> f64 {
+fn get_market_value_current_price(
+    market_values: &HashMap<u64, MarketValue>,
+    company_id: &u64,
+) -> f64 {
     match market_values.get(company_id) {
         Some(value) => value.current_price,
         None => 0.0,
     }
 }
 
-fn alert_agents(agents: &mut Vec<Agent>, expired_trades: &HashMap<u64, Vec<FailedOffer<Trade>>>, expired_options: &HashMap<u64, Vec<FailedOffer<StockOption>>>) {
+fn alert_agents(
+    agents: &mut Vec<Agent>,
+    agents_search: &HashMap<u64, usize>,
+    expired_trades: &HashMap<u64, Vec<FailedOffer<Trade>>>,
+    expired_options: &HashMap<u64, Vec<FailedOffer<StockOption>>>,
+) {
     for (company_id, offers) in expired_trades.iter() {
         for offer in offers.iter() {
-            let Some(agent) = get_mut_agent(agents, offer.0.offerer_id) else {
+            let Some(agent) = get_mut_agent(agents, agents_search, offer.0.offerer_id) else {
                 continue;
             };
             agent.balance += offer.0.strike_price * (offer.0.data.number_of_shares as f64);
@@ -186,7 +216,7 @@ fn alert_agents(agents: &mut Vec<Agent>, expired_trades: &HashMap<u64, Vec<Faile
     }
     for (company_id, offers) in expired_options.iter() {
         for offer in offers {
-            let Some(agent) = get_mut_agent(agents, offer.0.offerer_id) else {
+            let Some(agent) = get_mut_agent(agents, agents_search, offer.0.offerer_id) else {
                 continue;
             };
             agent.balance += offer.0.strike_price * (offer.0.data.number_of_shares as f64);
@@ -206,10 +236,11 @@ struct TodoTransactions {
 fn previously_failed_transactions(
     transactions: &mut Vec<TodoTransactions>,
     agents: &Vec<Agent>,
+    agents_search: &HashMap<u64, usize>,
     agent_id: u64,
     trade: &Trade,
 ) {
-    let agent = get_agent(agents, agent_id).unwrap();
+    let agent = get_agent(agents, agents_search, agent_id).unwrap();
     if agent.try_transactions.is_empty() {
         return;
     }
@@ -240,11 +271,17 @@ fn previously_failed_transactions(
     }
 }
 
-fn run_todo_transactions(todo_transactions: &mut Vec<TodoTransactions>, market: &mut Market, agents: &mut Vec<Agent>) {
+fn run_todo_transactions(
+    todo_transactions: &mut Vec<TodoTransactions>,
+    market: &mut Market,
+    agents: &mut Vec<Agent>,
+    agents_search: &HashMap<u64, usize>
+) {
     for todo_transaction in todo_transactions.iter() {
         trade_random(
             market,
             agents,
+            agents_search,
             todo_transaction.company_id,
             todo_transaction.agent_id,
             todo_transaction.strike_price,
@@ -274,8 +311,12 @@ fn main() {
     }
 
     let mut agents: Vec<Agent> = agent_file.unwrap_or(rand_agents());
-    let mut companies: Vec<Company> = company_file.unwrap_or(load_from_file("company_data.txt")
-        .unwrap_or(rand_companies()));
+    let mut agents_search: HashMap<u64, usize> = HashMap::new();
+    for (i, agent) in agents.iter().enumerate() {
+        agents_search.insert(agent.id, i);
+    }
+    let mut companies: Vec<Company> =
+        company_file.unwrap_or(load_from_file("company_data.txt").unwrap_or(rand_companies()));
 
     let mut market = Market::new();
 
@@ -303,20 +344,22 @@ fn main() {
 
     market.load_market_values(&market_values);
 
-    for _ in 0..1000 {
+    for i in 0..100 {
+        println!("{}", i);
         (market_values, expired_trades, expired_options) = market.tick();
-        alert_agents(&mut agents, &expired_trades, &expired_options);
+        alert_agents(&mut agents, &agents_search, &expired_trades, &expired_options);
 
         for agent_id in agent_ids.iter() {
             let company_id = &company_ids[rand::random::<usize>() % companies.len()];
             let strike_price = max(
                 MIN_STRIKE_PRICE,
-                get_market_value_current_price(&market_values, company_id) + (random::<f64>() - 0.5) * 20.0
+                get_market_value_current_price(&market_values, company_id)
+                    + (random::<f64>() - 0.5) * 20.0,
             );
             let trade = Trade::new(12);
 
-            previously_failed_transactions(&mut todo_transactions, &agents, *agent_id, &trade);
-            let agent = get_agent(&agents, *agent_id).unwrap();
+            previously_failed_transactions(&mut todo_transactions, &agents, &agents_search, *agent_id, &trade);
+            let agent = get_agent(&agents, &agents_search, *agent_id).unwrap();
             let action: TradeAction;
             if random::<f64>() > 0.5 {
                 if !agent.can_buy(strike_price, trade.number_of_shares) {
@@ -337,7 +380,7 @@ fn main() {
                 trade,
             });
         }
-        run_todo_transactions(&mut todo_transactions, &mut market, &mut agents);
+        run_todo_transactions(&mut todo_transactions, &mut market, &mut agents, &agents_search);
         todo_transactions.clear();
     }
 

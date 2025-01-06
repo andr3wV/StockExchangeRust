@@ -18,7 +18,7 @@ pub static AGENTS_DATA_FILENAME: &str = "data/agents.yaml";
 pub static COMPANIES_DATA_FILENAME: &str = "data/companies.yaml";
 
 pub static MIN_STRIKE_PRICE: f64 = 5.0;
-pub static OFFER_LIFETIME: u64 = 1000;
+pub static OFFER_LIFETIME: u64 = 10;
 
 #[derive(Debug)]
 pub enum SerializationError {

@@ -5,7 +5,7 @@ pkgs.stdenv.mkDerivation {
   name = "stocks";
   src = ./.;
 
-  buildInputs = with pkgs; [ rustc cargo ];
+  buildInputs = with pkgs; [ rustc cargo linuxPackages_latest.perf ];
 
   buildPhase = ''
     cargo build --release

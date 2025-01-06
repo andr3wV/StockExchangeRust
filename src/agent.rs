@@ -17,8 +17,8 @@ pub struct Agent {
     pub try_transactions: HashMap<u64, f64>,
 }
 
-pub static SYMBOL_LENGTH: usize = 4;
-pub static MAX_RANDOM_TOTAL_SHARES: u64 = 16000;
+pub const SYMBOL_LENGTH: usize = 4;
+pub const MAX_RANDOM_TOTAL_SHARES: u64 = 16000;
 
 #[derive(Serialize, Deserialize, Debug)]
 pub struct Company {
@@ -52,7 +52,11 @@ impl Agent {
         }
     }
     pub fn rand() -> Self {
-        Self::new(random(), random::<f64>() * MAX_INITIAL_BALANCE, Holdings::new())
+        Self::new(
+            random(),
+            random::<f64>() * MAX_INITIAL_BALANCE,
+            Holdings::new(),
+        )
     }
     pub fn can_buy(&self, price: f64, quantity: u64) -> bool {
         self.balance >= price * quantity as f64
@@ -60,7 +64,12 @@ impl Agent {
     pub fn can_sell(&self, company_id: u64, quantity: u64) -> bool {
         self.holdings.get(&company_id) >= quantity
     }
-    pub fn add_failed_transaction(&mut self, company_id: u64, failed_price: f64, offer_type: &TradeAction) {
+    pub fn add_failed_transaction(
+        &mut self,
+        company_id: u64,
+        failed_price: f64,
+        offer_type: &TradeAction,
+    ) {
         let price;
         match offer_type {
             TradeAction::Buy => {
@@ -70,12 +79,18 @@ impl Agent {
                 price = -failed_price;
             }
         }
-        self.try_transactions.insert(company_id, price + failed_price * 0.25);
+        self.try_transactions
+            .insert(company_id, price + failed_price * 0.25);
     }
 }
 
 impl Company {
-    pub fn new(id: u64, name: String, code: [char; SYMBOL_LENGTH], market_value: MarketValue) -> Self {
+    pub fn new(
+        id: u64,
+        name: String,
+        code: [char; SYMBOL_LENGTH],
+        market_value: MarketValue,
+    ) -> Self {
         Self {
             id,
             name,
@@ -87,8 +102,12 @@ impl Company {
         Self::new(
             random(),
             random_string(),
-            (0..SYMBOL_LENGTH).map(|_| rand_char()).collect::<Vec<char>>().try_into().unwrap(),
-            MarketValue::rand()
+            (0..SYMBOL_LENGTH)
+                .map(|_| rand_char())
+                .collect::<Vec<char>>()
+                .try_into()
+                .unwrap(),
+            MarketValue::rand(),
         )
     }
 }

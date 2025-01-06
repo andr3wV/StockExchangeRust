@@ -7,5 +7,6 @@ pkgs.mkShell {
     cargo       # Rust package manager
     rustfmt     # Code formatter
     clippy      # Linter
+    linuxPackages_latest.perf # Profiler
   ];
 }
