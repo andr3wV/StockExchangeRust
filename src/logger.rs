@@ -26,17 +26,30 @@ pub enum FileSaveError {
 }
 
 impl Log {
+    #[cfg(debug_assertions)]
+    fn new() -> Self {
+        Self {
+            log_level: LogLevel::INFO,
+            output_file: Some("debug.log".to_string()),
+        }
+    }
+    #[cfg(not(debug_assertions))]
     fn new() -> Self {
         Self {
             log_level: LogLevel::WARN,
             output_file: None,
         }
     }
-    fn fmt(log_type: LogLevel, spacing: &str, message: &str) -> String {
+
+    fn fmt(log_type: LogLevel, spacing: &str, message: &str, formatting: bool) -> String {
+        let (info_str, warn_str, error_str) = match formatting {
+            true => ("Info".bold().green(), "Warn".bold().yellow(), "Error".bold().red()),
+            false => ("Info".normal(), "Warn".normal(), "Error".normal()),
+        };
         match log_type {
-            LogLevel::INFO => format!("[{}]{} {}", "Info".bold().green(), spacing, message),
-            LogLevel::WARN => format!("[{}]{} {}", "Warn".bold().yellow(), spacing, message),
-            LogLevel::ERROR => format!("[{}]{} {}", "Error".bold().red(), spacing, message),
+            LogLevel::INFO => format!("[{}]{} {}", info_str, spacing, message),
+            LogLevel::WARN => format!("[{}]{} {}", warn_str, spacing, message),
+            LogLevel::ERROR => format!("[{}]{} {}", error_str, spacing, message),
         }
     }
 
@@ -75,34 +88,34 @@ impl Log {
         if self.log_level > LogLevel::INFO {
             return;
         }
-        println!("{}", Log::fmt(LogLevel::INFO, "", message));
+        println!("{}", Log::fmt(LogLevel::INFO, "", message, true,));
     }
     pub fn info_file(&self, message: &str) -> Result<(), FileSaveError> {
         if self.log_level > LogLevel::INFO {
             return Ok(());
         }
-        self.to_file(&Log::fmt(LogLevel::INFO, "", message))
+        self.to_file(&Log::fmt(LogLevel::INFO, "", message, false,))
     }
 
     pub fn warn_stdout(&self, message: &str) {
         if self.log_level > LogLevel::WARN {
             return;
         }
-        println!("{}", Log::fmt(LogLevel::WARN, "", message));
+        println!("{}", Log::fmt(LogLevel::WARN, "", message, true,));
     }
     pub fn warn_file(&self, message: &str) -> Result<(), FileSaveError> {
         if self.log_level > LogLevel::WARN {
             return Ok(());
         }
-        self.to_file(&Log::fmt(LogLevel::WARN, "", message))
+        self.to_file(&Log::fmt(LogLevel::WARN, "", message, false,))
     }
 
     pub fn critical_stdout(&self, message: &str) -> ! {
-        println!("{}", Log::fmt(LogLevel::ERROR, "", message));
+        println!("{}", Log::fmt(LogLevel::ERROR, "", message, true));
         process::exit(1);
     }
     pub fn critical_file(&self, message: &str) -> ! {
-        if let Err(e) = self.to_file(&Log::fmt(LogLevel::ERROR, "", message)) {
+        if let Err(e) = self.to_file(&Log::fmt(LogLevel::ERROR, "", message, false,)) {
             println!("{:?}", e);
         }
         process::exit(1);
@@ -111,7 +124,7 @@ impl Log {
     pub fn critical_debug_stdout(&self, file: &str, line: u32, message: &str) -> ! {
         println!(
             "{}",
-            Log::fmt(LogLevel::ERROR, &format!("[{}:{}]", file, line), message,)
+            Log::fmt(LogLevel::ERROR, &format!("[{}:{}]", file, line), message, true,)
         );
         process::exit(1);
     }
@@ -120,6 +133,7 @@ impl Log {
             LogLevel::ERROR,
             &format!("[{}:{}]", file, line),
             message,
+            false,
         )) {
             println!("{:?}", e);
         }
