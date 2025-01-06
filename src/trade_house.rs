@@ -2,7 +2,7 @@ use std::collections::HashMap;
 
 use rand::random;
 use serde::{Deserialize, Serialize};
-use crate::OFFER_LIFETIME;
+use crate::{OFFER_LIFETIME};
 
 /// Basically stores all the requested trades that weren't immediately resolved
 #[derive(Serialize, Deserialize, Debug)]
@@ -43,6 +43,8 @@ impl Trade {
         }
     }
 }
+
+pub struct FailedOffer<T: Clone>(pub Offer<T>, pub OfferAsk);
 
 /// A specific option offer
 /// MAYBE RECONSIDER THE ATTRIBUTES
@@ -196,7 +198,7 @@ impl TradeHouse {
             }).collect::<Vec<usize>>())
     }
 
-    pub fn tick(&mut self) -> (HashMap<u64, Vec<Offer<Trade>>>, HashMap<u64, Vec<Offer<StockOption>>>) {
+    pub fn tick(&mut self) -> (HashMap<u64, Vec<FailedOffer<Trade>>>, HashMap<u64, Vec<FailedOffer<StockOption>>>) {
         let mut trade_offers = HashMap::new();
         let mut option_offers = HashMap::new();
         for (company_id, offers) in self.trade_offers.iter_mut() {
@@ -262,20 +264,20 @@ impl<T: Clone> Offers<T> {
         self.buyer_offers.push(trade);
     }
 
-    pub fn tick(&mut self) -> Vec<Offer<T>> {
+    pub fn tick(&mut self) -> Vec<FailedOffer<T>> {
         let mut expired_offers = Vec::new();
         for i in (0..self.seller_offers.len()).rev() {
             let Some(offer) = self.seller_offers[i].tick() else {
                 continue;
             };
-            expired_offers.push(offer);
+            expired_offers.push(FailedOffer(offer, OfferAsk::Sell));
             self.seller_offers.remove(i);
         }
         for i in (0..self.buyer_offers.len()).rev() {
             let Some(offer) = self.buyer_offers[i].tick() else {
                 continue;
             };
-            expired_offers.push(offer);
+            expired_offers.push(FailedOffer(offer, OfferAsk::Buy));
             self.buyer_offers.remove(i);
         }
         expired_offers

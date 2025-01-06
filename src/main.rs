@@ -1,6 +1,6 @@
 use rand::random;
 use stocks::{
-    agent::{Agent, Company, SYMBOL_LENGTH}, load, log, logger::Log, market::{ActionState, Market, MarketValue}, max, save, trade_house::{Offer, OfferAsk, StockOption, Trade}, transaction::Transaction, AGENTS_DATA_FILENAME, COMPANIES_DATA_FILENAME, MIN_STRIKE_PRICE, NUM_OF_AGENTS, NUM_OF_COMPANIES
+    agent::{Agent, Company, SYMBOL_LENGTH}, load, log, logger::Log, market::{ActionState, Market, MarketValue}, max, save, trade_house::{FailedOffer, Offer, OfferAsk, StockOption, Trade}, transaction::Transaction, AGENTS_DATA_FILENAME, COMPANIES_DATA_FILENAME, MIN_STRIKE_PRICE, NUM_OF_AGENTS, NUM_OF_COMPANIES
 };
 use std::{collections::HashMap, io::BufRead};
 
@@ -69,12 +69,14 @@ fn buy_random(
     market: &mut Market,
     agents: &mut Vec<Agent>,
     company_id: u64,
-    agent_id: &u64,
+    agent_id: u64,
     strike_price: f64,
     acceptable_strike_price_deviation: f64,
     trade: &Trade,
 ) {
-    let result = market.buy_trade(*agent_id, company_id, strike_price, acceptable_strike_price_deviation, trade);
+    let result = market.buy_trade(agent_id, company_id, strike_price, acceptable_strike_price_deviation, trade);
+    let agent = get_mut_agent(agents, agent_id).unwrap();
+    agent.holdings.push(company_id, trade.number_of_shares);
     match result {
         Ok(action_state) => {
             match action_state {
@@ -102,12 +104,12 @@ fn buy_random(
             let (transaction, extra_shares_left) = market.buy_trade_offer(
                 company_id,
                 &offer,
-                *agent_id,
+                agent_id,
                 trade
             );
             if extra_shares_left > 0 {
                 market.house.add_trade_offer(
-                    *agent_id,
+                    agent_id,
                     company_id,
                     strike_price,
                     Trade::new(extra_shares_left),
@@ -123,12 +125,14 @@ fn sell_random(
     market: &mut Market,
     agents: &mut Vec<Agent>,
     company_id: u64,
-    agent_id: &u64,
+    agent_id: u64,
     strike_price: f64,
     acceptable_strike_price_deviation: f64,
     trade: &Trade,
 ) {
-    let result = market.sell_trade(*agent_id, company_id, strike_price, acceptable_strike_price_deviation, &trade);
+    let result = market.sell_trade(agent_id, company_id, strike_price, acceptable_strike_price_deviation, &trade);
+    let agent = get_mut_agent(agents, agent_id).unwrap();
+    agent.holdings.pop(company_id, trade.number_of_shares);
     match result {
         Ok(action_state) => {
             match action_state {
@@ -156,12 +160,12 @@ fn sell_random(
             let (transaction, extra_shares_left) = market.sell_trade_offer(
                 company_id,
                 &offer,
-                *agent_id,
+                agent_id,
                 trade
             );
             if extra_shares_left > 0 {
                 market.house.add_trade_offer(
-                    *agent_id,
+                    agent_id,
                     company_id,
                     strike_price,
                     Trade::new(extra_shares_left),
@@ -207,23 +211,84 @@ fn get_market_value_current_price(market_values: &HashMap<u64, MarketValue>, com
     }
 }
 
-fn alert_agents(agents: &mut Vec<Agent>, expired_trades: &HashMap<u64, Vec<Offer<Trade>>>, expired_options: &HashMap<u64, Vec<Offer<StockOption>>>) {
+fn alert_agents(agents: &mut Vec<Agent>, expired_trades: &HashMap<u64, Vec<FailedOffer<Trade>>>, expired_options: &HashMap<u64, Vec<FailedOffer<StockOption>>>) {
     for (company_id, offers) in expired_trades.iter() {
         for offer in offers.iter() {
-            let Some(agent) = get_mut_agent(agents, offer.offerer_id) else {
+            let Some(agent) = get_mut_agent(agents, offer.0.offerer_id) else {
                 continue;
             };
-            agent.balance += offer.strike_price * (offer.data.number_of_shares as f64);
-            agent.add_failed_transaction(*company_id, offer.strike_price);
+            agent.balance += offer.0.strike_price * (offer.0.data.number_of_shares as f64);
+            agent.add_failed_transaction(*company_id, offer.0.strike_price, &offer.1);
         }
     }
     for (company_id, offers) in expired_options.iter() {
         for offer in offers {
-            let Some(agent) = get_mut_agent(agents, offer.offerer_id) else {
+            let Some(agent) = get_mut_agent(agents, offer.0.offerer_id) else {
                 continue;
             };
-            agent.balance += offer.strike_price * (offer.data.number_of_shares as f64);
-            agent.add_failed_transaction(*company_id, offer.strike_price);
+            agent.balance += offer.0.strike_price * (offer.0.data.number_of_shares as f64);
+            agent.add_failed_transaction(*company_id, offer.0.strike_price, &offer.1);
+        }
+    }
+}
+
+struct TodoTransactions {
+    pub agent_id: u64,
+    pub company_id: u64,
+    pub strike_price: f64,
+    pub action: OfferAsk,
+    pub trade: Trade,
+}
+
+fn previously_failed_transactions(
+    transactions: &mut Vec<TodoTransactions>,
+    agents: &Vec<Agent>,
+    agent_id: &u64,
+    trade: &Trade,
+) {
+    let agent = get_agent(agents, *agent_id).unwrap();
+    if agent.try_transactions.is_empty() {
+        return;
+    }
+    for (company_id, new_price) in agent.try_transactions.iter() {
+        // 40% chance of retrying
+        if random::<f64>() > 0.4 {
+            continue;
+        }
+        let action: OfferAsk;
+        let price: f64;
+        if *new_price > 0.0 {
+            action = OfferAsk::Buy;
+            price = *new_price;
+        } else {
+            action = OfferAsk::Sell;
+            price = -*new_price;
+        }
+        match action {
+            OfferAsk::Buy => {
+                if !agent.can_buy(price, trade.number_of_shares) {
+                    continue;
+                }
+                transactions.push(TodoTransactions {
+                    agent_id: *agent_id,
+                    company_id: *company_id,
+                    strike_price: price,
+                    action,
+                    trade: trade.clone(),
+                });
+            }
+            OfferAsk::Sell => {
+                if !agent.can_sell(*company_id, trade.number_of_shares) {
+                    continue;
+                }
+                transactions.push(TodoTransactions {
+                    agent_id: *agent_id,
+                    company_id: *company_id,
+                    strike_price: price,
+                    action,
+                    trade: trade.clone(),
+                });
+            }
         }
     }
 }
@@ -250,7 +315,6 @@ fn main() {
     let mut companies: Vec<Company> = company_file.unwrap_or(load_from_file("company_data.txt")
         .unwrap_or(rand_companies()));
 
-
     let mut market = Market::new();
 
     let agent_ids: Vec<u64> = agents.iter().map(|agent| agent.id).collect();
@@ -267,8 +331,8 @@ fn main() {
     }
 
     let mut market_values = HashMap::new();
-    let mut expired_trades = HashMap::new();
-    let mut expired_options = HashMap::new();
+    let mut expired_trades;
+    let mut expired_options;
 
     for company in companies.iter() {
         market_values.insert(company.id, company.market_value.clone());
@@ -279,28 +343,63 @@ fn main() {
     for _ in 0..1000 {
         (market_values, expired_trades, expired_options) = market.tick();
         alert_agents(&mut agents, &expired_trades, &expired_options);
+
+        let mut todo_transactions = Vec::new();
         for agent_id in agent_ids.iter() {
             let company_id = &company_ids[rand::random::<usize>() % companies.len()];
             let strike_price = max(MIN_STRIKE_PRICE, get_market_value_current_price(&market_values, company_id) + (random::<f64>() - 0.5) * 20.0);
             let trade = Trade::new(12);
-            let acceptable_strike_price_deviation = 5.0;
 
+            previously_failed_transactions(&mut todo_transactions, &agents, agent_id, &trade);
             let agent = get_agent(&agents, *agent_id).unwrap();
             if random::<f64>() > 0.5 {
-                if agent.can_buy(strike_price, trade.number_of_shares) {
-                    let Some(mut_agent) = get_mut_agent(&mut agents, *agent_id) else {
-                        continue;
-                    };
-                    mut_agent.holdings.push(*company_id, trade.number_of_shares);
-                    buy_random(&mut market, &mut agents, *company_id, agent_id, strike_price, acceptable_strike_price_deviation, &trade);
+                if !agent.can_buy(strike_price, trade.number_of_shares) {
+                    continue;
                 }
-            } else {
-                if agent.can_sell(*company_id, trade.number_of_shares) {
-                    let Some(mut_agent) = get_mut_agent(&mut agents, *agent_id) else {
-                        continue;
-                    };
-                    mut_agent.holdings.pop(*company_id, trade.number_of_shares);
-                    sell_random(&mut market, &mut agents, *company_id, agent_id, strike_price, acceptable_strike_price_deviation, &trade);
+                todo_transactions.push(TodoTransactions {
+                    agent_id: *agent_id,
+                    company_id: *company_id,
+                    strike_price,
+                    action: OfferAsk::Buy,
+                    trade: trade.clone(),
+                });
+                continue;
+            }
+            if !agent.can_sell(*company_id, trade.number_of_shares) {
+                continue;
+            }
+            todo_transactions.push(TodoTransactions {
+                agent_id: *agent_id,
+                company_id: *company_id,
+                strike_price,
+                action: OfferAsk::Sell,
+                trade: trade.clone(),
+            });
+        }
+
+        for todo_transaction in todo_transactions.iter() {
+            match todo_transaction.action {
+                OfferAsk::Buy => {
+                    buy_random(
+                        &mut market,
+                        &mut agents,
+                        todo_transaction.company_id,
+                        todo_transaction.agent_id,
+                        todo_transaction.strike_price,
+                        5.0,
+                        &todo_transaction.trade,
+                    );
+                }
+                OfferAsk::Sell => {
+                    sell_random(
+                        &mut market,
+                        &mut agents,
+                        todo_transaction.company_id,
+                        todo_transaction.agent_id,
+                        todo_transaction.strike_price,
+                        5.0,
+                        &todo_transaction.trade,
+                    );
                 }
             }
         }

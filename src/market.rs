@@ -1,6 +1,6 @@
 use std::collections::HashMap;
 
-use crate::{max, min, trade_house::{Offer, OfferAsk, StockOption, Trade, TradeHouse}, transaction::Transaction};
+use crate::{max, min, trade_house::{FailedOffer, Offer, OfferAsk, StockOption, Trade, TradeHouse}, transaction::Transaction};
 use rand::random;
 use serde::{Deserialize, Serialize};
 
@@ -238,8 +238,8 @@ impl Market {
 
     pub fn tick(&mut self) -> (
         HashMap<u64, MarketValue>,
-        HashMap<u64, Vec<Offer<Trade>>>,
-        HashMap<u64, Vec<Offer<StockOption>>>
+        HashMap<u64, Vec<FailedOffer<Trade>>>,
+        HashMap<u64, Vec<FailedOffer<StockOption>>>
     ) {
         let house_tick_data = self.house.tick();
         let mut market_values: HashMap<u64, MarketValue> = HashMap::new();

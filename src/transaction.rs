@@ -91,7 +91,7 @@ impl Holdings {
                 return true;
             }
             None => {
-                return false
+                return false;
             }
         }
     }

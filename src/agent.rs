@@ -1,6 +1,6 @@
 use std::collections::HashMap;
 
-use crate::{market::MarketValue, transaction::Holdings};
+use crate::{market::MarketValue, trade_house::OfferAsk, transaction::Holdings};
 
 use rand::{random, Rng};
 use serde::{Deserialize, Serialize};
@@ -60,8 +60,17 @@ impl Agent {
     pub fn can_sell(&self, company_id: u64, quantity: u64) -> bool {
         self.holdings.get(&company_id) >= quantity
     }
-    pub fn add_failed_transaction(&mut self, company_id: u64, failed_price: f64) {
-        self.try_transactions.insert(company_id, failed_price * 1.25);
+    pub fn add_failed_transaction(&mut self, company_id: u64, failed_price: f64, offer_type: &OfferAsk) {
+        let price;
+        match offer_type {
+            OfferAsk::Buy => {
+                price = failed_price;
+            }
+            OfferAsk::Sell => {
+                price = -failed_price;
+            }
+        }
+        self.try_transactions.insert(company_id, price + failed_price * 0.25);
     }
 }
 
