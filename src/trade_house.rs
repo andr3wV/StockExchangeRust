@@ -5,17 +5,17 @@ use rand::random;
 use serde::{Deserialize, Serialize};
 
 /// Basically stores all the requested trades that weren't immediately resolved
-#[derive(Serialize, Deserialize, Debug)]
+#[derive(Serialize, Deserialize, Debug, Default)]
 pub struct TradeHouse {
     trade_offers: HashMap<u64, Offers<Trade>>,
     option_offers: HashMap<u64, Offers<StockOption>>,
 }
 
 /// All the offers of the certain company
-#[derive(Serialize, Deserialize, Debug, Clone)]
+#[derive(Serialize, Deserialize, Debug, Clone, Default)]
 pub struct Offers<T>
 where
-    T: Clone,
+    T: Clone + Default,
 {
     pub seller_offers: Vec<Offer<T>>,
     pub buyer_offers: Vec<Offer<T>>,
@@ -26,10 +26,10 @@ where
 /// A specific offer
 ///
 ///todo Allow users to cancel their offers (to get their holdings back)
-#[derive(Serialize, Deserialize, Debug, Clone)]
+#[derive(Serialize, Deserialize, Debug, Clone, Default)]
 pub struct Offer<T>
 where
-    T: Clone,
+    T: Clone + Default,
 {
     pub id: u64,
     pub offerer_id: u64,
@@ -38,7 +38,7 @@ where
     pub lifetime: u64,
 }
 
-#[derive(Serialize, Deserialize, Debug, Clone)]
+#[derive(Serialize, Deserialize, Debug, Clone, Default)]
 pub struct Trade {
     pub number_of_shares: u64,
 }
@@ -48,11 +48,11 @@ impl Trade {
     }
 }
 
-pub struct FailedOffer<T: Clone>(pub Offer<T>, pub TradeAction);
+pub struct FailedOffer<T: Clone + Default>(pub Offer<T>, pub TradeAction);
 
 /// A specific option offer
 /// MAYBE RECONSIDER THE ATTRIBUTES
-#[derive(Serialize, Deserialize, Debug, Clone)]
+#[derive(Serialize, Deserialize, Debug, Clone, Default)]
 pub struct StockOption {
     pub number_of_shares: u64,
     pub time_to_expiry: u64,
@@ -90,17 +90,11 @@ impl TradeHouse {
     }
 
     pub fn get_mut_trade_offers(&mut self, company_id: u64) -> &mut Offers<Trade> {
-        if !self.trade_offers.contains_key(&company_id) {
-            self.trade_offers.insert(company_id, Offers::new());
-        }
-        self.trade_offers.get_mut(&company_id).unwrap()
+        self.trade_offers.entry(company_id).or_default()
     }
 
     pub fn get_mut_option_offers(&mut self, company_id: u64) -> &mut Offers<StockOption> {
-        if !self.option_offers.contains_key(&company_id) {
-            self.option_offers.insert(company_id, Offers::new());
-        }
-        self.option_offers.get_mut(&company_id).unwrap()
+        self.option_offers.entry(company_id).or_default()
     }
 
     pub fn add_trade_offer(
@@ -111,12 +105,12 @@ impl TradeHouse {
         trade: Trade,
         offer_ask: TradeAction,
     ) {
-
         let company_stock_trade = self.get_mut_trade_offers(company_id);
         (match offer_ask {
             TradeAction::Buy => &mut company_stock_trade.buyer_offers,
-            TradeAction::Sell => &mut company_stock_trade.seller_offers
-        }).push(Offer::new(offerer_id, strike_price, trade));
+            TradeAction::Sell => &mut company_stock_trade.seller_offers,
+        })
+        .push(Offer::new(offerer_id, strike_price, trade));
     }
 
     pub fn add_option_offer(
@@ -130,8 +124,9 @@ impl TradeHouse {
         let company_stock_trade = self.get_mut_option_offers(company_id);
         (match offer_ask {
             TradeAction::Buy => &mut company_stock_trade.buyer_offers,
-            TradeAction::Sell => &mut company_stock_trade.seller_offers
-        }).push(Offer::new(offerer_id, strike_price, option));
+            TradeAction::Sell => &mut company_stock_trade.seller_offers,
+        })
+        .push(Offer::new(offerer_id, strike_price, option));
     }
 
     pub fn get_appropriate_trade_offer(
@@ -200,7 +195,6 @@ impl TradeHouse {
                 .collect::<Vec<usize>>(),
         )
     }
-
 
     pub fn get_appropriate_option_offer(
         &mut self,
@@ -293,14 +287,9 @@ impl TradeHouse {
     }
 }
 
-impl<T: Clone> Offers<T> {
+impl<T: Clone + Default> Offers<T> {
     pub fn new() -> Self {
-        Self {
-            seller_offers: Vec::new(),
-            buyer_offers: Vec::new(),
-            highest_strike_price: 0.0,
-            lowest_strike_price: 0.0,
-        }
+        Self::default()
     }
 
     pub fn remove_offer(&mut self, offer_id: usize) {
@@ -362,7 +351,7 @@ impl<T: Clone> Offers<T> {
     }
 }
 
-impl<T: Clone> Offer<T> {
+impl<T: Clone + Default> Offer<T> {
     pub fn new(offerer_id: u64, strike_price: f64, data: T) -> Self {
         Self {
             id: random(),

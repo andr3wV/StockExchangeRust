@@ -8,13 +8,13 @@ use crate::{
 use rand::random;
 use serde::{Deserialize, Serialize};
 
-#[derive(Serialize, Deserialize, Debug)]
+#[derive(Serialize, Deserialize, Debug, Default)]
 pub struct Market {
     market_values: HashMap<u64, MarketValueTracker>,
     pub house: TradeHouse,
 }
 
-#[derive(Serialize, Deserialize, Debug, Clone)]
+#[derive(Serialize, Deserialize, Debug, Clone, Default)]
 pub struct MarketValue {
     /// Current price of a stock as shown for display purposes
     pub current_price: f64,
@@ -44,10 +44,7 @@ pub enum ActionState {
 
 impl Market {
     pub fn new() -> Self {
-        Self {
-            house: TradeHouse::new(),
-            market_values: HashMap::new(),
-        }
+        Self::default()
     }
 
     pub fn dump_market_values(&mut self, market_values: &HashMap<u64, MarketValue>) {
@@ -80,7 +77,7 @@ impl Market {
                 .add_trade_offer(agent_id, company_id, strike_price, trade.clone(), action);
             return Ok(ActionState::AddedToOffers);
         };
-        if offer_idxs.len() == 0 {
+        if offer_idxs.is_empty() {
             self.house
                 .add_trade_offer(agent_id, company_id, strike_price, trade.clone(), action);
             return Ok(ActionState::AddedToOffers);
@@ -115,7 +112,7 @@ impl Market {
 
             return Ok(ActionState::PartiallyResolved(transaction));
         }
-        return Err(offer_idxs);
+        Err(offer_idxs)
     }
 
     /// ! Does not remove the offer from the trade house
@@ -145,8 +142,7 @@ impl Market {
             );
         }
 
-        let transaction;
-        if offer.data.number_of_shares > trade.number_of_shares {
+        let transaction = if offer.data.number_of_shares > trade.number_of_shares {
             self.house.add_trade_offer(
                 offer.offerer_id,
                 company_id,
@@ -154,37 +150,35 @@ impl Market {
                 Trade::new(offer.data.number_of_shares - trade.number_of_shares),
                 TradeAction::Sell,
             );
-            transaction = Transaction::new(
+            Transaction::new(
                 buyer_id,
                 seller_id,
                 company_id,
                 trade.number_of_shares,
                 offer.strike_price,
-            );
+            )
         } else {
-            transaction = Transaction::new(
+            Transaction::new(
                 buyer_id,
                 seller_id,
                 company_id,
                 offer.data.number_of_shares,
                 offer.strike_price,
-            );
-        }
-        return (
+            )
+        };
+        (
             transaction,
             max(0, trade.number_of_shares - offer.data.number_of_shares),
-        );
+        )
     }
 
     pub fn add_transaction(&mut self, company_id: u64, price: f64) {
-        if !self.market_values.contains_key(&company_id) {
-            self.market_values
-                .insert(company_id, MarketValueTracker::new());
-        }
-        self.market_values
-            .get_mut(&company_id)
-            .unwrap()
-            .add_transaction(price);
+        let tracker = self
+            .market_values
+            .entry(company_id)
+            .or_insert(MarketValueTracker::new());
+
+        tracker.add_transaction(price);
     }
 
     pub fn tick(
@@ -199,19 +193,13 @@ impl Market {
         for (id, market_value_tracker) in self.market_values.iter_mut() {
             market_values.insert(*id, market_value_tracker.tick());
         }
-        return (market_values, house_tick_data.0, house_tick_data.1);
+        (market_values, house_tick_data.0, house_tick_data.1)
     }
 }
 
 impl MarketValue {
     pub fn new() -> Self {
-        Self {
-            current_price: 0.0,
-            highest_price: 0.0,
-            lowest_price: 0.0,
-            overall_movement_start: 0.0,
-            overall_movement_end: 0.0,
-        }
+        Self::default()
     }
     pub fn rand() -> Self {
         Self {
@@ -264,6 +252,6 @@ impl MarketValueTracker {
             .clone();
 
         self.recent_transactions_strike_prices.clear();
-        return self.market_value.clone();
+        self.market_value.clone()
     }
 }

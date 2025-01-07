@@ -1,92 +1,204 @@
+use crate::{
+    market::{ActionState, Market, MarketValue},
+    trade_house::{FailedOffer, StockOption, Trade, TradeAction},
+    transaction::{AgentHoldings, TodoTransactions, Transaction},
+    NUM_OF_AGENTS, NUM_OF_COMPANIES,
+};
+use rand::random;
+use serde::{Deserialize, Serialize};
 use std::collections::HashMap;
 
-use crate::{market::{ActionState, Market, MarketValue}, trade_house::{FailedOffer, StockOption, Trade, TradeAction}, transaction::{Holdings, TodoTransactions, Transaction}, NUM_OF_AGENTS};
+#[derive(Debug, Clone, Default)]
+pub struct Holdings(HashMap<u128, u64>);
 
-use rand::{random, Rng};
-use serde::{Deserialize, Serialize};
-
-static MAX_INITIAL_BALANCE: f64 = 100000.0;
-
-#[derive(Serialize, Deserialize, Debug, Clone)]
-pub struct Agent {
-    pub id: u64,
-    /// How much money does the agent have
-    pub balance: f64,
-    /// How many shares does an agent hold in a company
-    pub holdings: Holdings,
-    pub try_offers: HashMap<u64, f64>,
-}
+#[derive(Debug, Clone, Default)]
+pub struct Balances(Vec<f64>);
 
 pub const SYMBOL_LENGTH: usize = 4;
 pub const MAX_RANDOM_TOTAL_SHARES: u64 = 16000;
 
-#[derive(Serialize, Deserialize, Debug)]
+#[derive(Default)]
+pub struct Agents {
+    pub num_of_agents: u64,
+    pub holdings: Holdings,
+    pub balances: Balances,
+    pub try_offers: HashMap<u128, f64>,
+}
+
+#[derive(Default)]
+pub struct Companies {
+    pub num_of_companies: u64,
+}
+
+#[derive(Serialize, Deserialize)]
+pub struct Agent {
+    pub id: u64,
+    pub balance: f64,
+    pub holding: AgentHoldings,
+}
+
+#[derive(Serialize, Deserialize)]
 pub struct Company {
     pub id: u64,
-    pub name: String,
-    pub code: [char; SYMBOL_LENGTH],
-    pub market_value: MarketValue,
 }
 
-fn random_string() -> String {
-    (0..10).map(|_| rand_char()).collect()
+fn combine(a: u64, b: u64) -> u128 {
+    (a as u128) << 64 | b as u128
 }
 
-fn rand_char() -> char {
-    let mut rng = rand::thread_rng();
-    let mut i: u8 = rng.gen_range(0..52);
-    if i < 26 {
-        return ('a' as u8 + i) as char;
+fn get_first(a: u128) -> u64 {
+    (a >> 64) as u64
+}
+
+fn get_second(a: u128) -> u64 {
+    (a & 0xFFFFFFFFFFFFFFFF) as u64
+}
+
+impl Holdings {
+    pub fn insert(&mut self, agent_id: u64, company_id: u64, number_of_shares: u64) {
+        self.0
+            .insert(combine(agent_id, company_id), number_of_shares);
     }
-    i -= 26;
-    return ('A' as u8 + i) as char;
+    pub fn get(&self, agent_id: u64, company_id: u64) -> u64 {
+        match self.0.get(&combine(agent_id, company_id)) {
+            Some(share_count) => *share_count,
+            None => 0,
+        }
+    }
+    pub fn get_u128(&self, id: u128) -> u64 {
+        match self.0.get(&id) {
+            Some(share_count) => *share_count,
+            None => 0,
+        }
+    }
+    pub fn push_from_txn(&mut self, target_agent_id: u64, transaction: &Transaction) {
+        let company = self
+            .0
+            .get_mut(&combine(target_agent_id, transaction.company_id));
+        match company {
+            Some(share_count) => {
+                *share_count += transaction.number_of_shares;
+            }
+            None => {
+                self.0.insert(
+                    combine(target_agent_id, transaction.company_id),
+                    transaction.number_of_shares,
+                );
+            }
+        }
+    }
+    pub fn pop_from_txn(&mut self, target_agent_id: u64, transaction: &Transaction) -> bool {
+        let Some(share_count) = self
+            .0
+            .get_mut(&combine(target_agent_id, transaction.company_id))
+        else {
+            return false;
+        };
+        if *share_count < transaction.number_of_shares {
+            return false;
+        }
+        *share_count -= transaction.number_of_shares;
+        true
+    }
+    pub fn push(&mut self, agent_id: u64, company_id: u64, number_of_shares: u64) {
+        let Some(share_count) = self.0.get_mut(&combine(agent_id, company_id)) else {
+            self.0
+                .insert(combine(agent_id, company_id), number_of_shares);
+            return;
+        };
+        *share_count += number_of_shares;
+    }
+    pub fn pop(&mut self, agent_id: u64, company_id: u64, number_of_shares: u64) -> bool {
+        let Some(share_count) = self.0.get_mut(&combine(agent_id, company_id)) else {
+            return false;
+        };
+        if *share_count < number_of_shares {
+            return false;
+        }
+
+        *share_count -= number_of_shares;
+        true
+    }
 }
 
-impl Agent {
-    pub fn new(id: u64, balance: f64, holdings: Holdings) -> Self {
+impl Balances {
+    pub fn get(&self, agent_id: u64) -> f64 {
+        self.0[agent_id as usize]
+    }
+    pub fn add(&mut self, agent_id: u64, amount: f64) {
+        self.0[agent_id as usize] += amount;
+    }
+}
+
+impl Agents {
+    pub fn new() -> Self {
         Self {
-            id,
-            balance,
+            num_of_agents: NUM_OF_AGENTS,
+            balances: Balances(vec![0.0; NUM_OF_AGENTS as usize]),
+            ..Default::default()
+        }
+    }
+    pub fn load(agents: &[Agent]) -> Self {
+        let num_of_agents = agents.len() as u64;
+        let mut balances = Vec::with_capacity(agents.len());
+        let mut holdings = Holdings::default();
+        for (i, agent) in agents.iter().enumerate() {
+            balances[i] = agent.balance;
+            for (company_id, holding) in agent.holding.0.iter() {
+                holdings.insert(i as u64, *company_id, *holding);
+            }
+        }
+        Self {
+            num_of_agents,
+            balances: Balances(balances),
             holdings,
             try_offers: HashMap::new(),
         }
     }
-    pub fn rand() -> Self {
-        Self::new(
-            random(),
-            random::<f64>() * MAX_INITIAL_BALANCE,
-            Holdings::new(),
-        )
-    }
-    pub fn can_buy(&self, price: f64, quantity: u64) -> bool {
-        self.balance >= price * quantity as f64
-    }
-    pub fn can_sell(&self, company_id: u64, quantity: u64) -> bool {
-        self.holdings.get(&company_id) >= quantity
-    }
-    pub fn add_failed_offer(
-        &mut self,
-        company_id: u64,
-        failed_price: f64,
-        offer_type: &TradeAction,
-    ) {
-        let price;
-        match offer_type {
-            TradeAction::Buy => {
-                price = failed_price;
-            }
-            TradeAction::Sell => {
-                price = -failed_price;
-            }
+    pub fn save(&self) -> Vec<Agent> {
+        let mut agents = Vec::with_capacity(self.num_of_agents as usize);
+        for i in 0..self.num_of_agents {
+            agents.push(Agent {
+                id: i,
+                balance: self.balances.get(i),
+                holding: AgentHoldings(
+                    self.holdings
+                        .0
+                        .iter()
+                        .filter(|(key, _)| get_first(**key) == i)
+                        .map(|(key, value)| (get_second(*key), *value))
+                        .collect(),
+                ),
+            });
         }
-        self.try_offers
-            .insert(company_id, price + failed_price * 0.25);
+        agents
     }
-    pub fn try_failed_offers(&self, transactions: &mut Vec<TodoTransactions>, agent_id: u64, attempting_trade: &Trade) {
+    pub fn introduce_new_agents(&mut self, num_of_agents_to_introduce: u64) {
+        let mut introduce_ids: Vec<f64> = (self.num_of_agents
+            ..(self.num_of_agents + num_of_agents_to_introduce))
+            .map(|_| 0.0)
+            .collect();
+        self.balances.0.append(&mut introduce_ids);
+        self.num_of_agents += num_of_agents_to_introduce;
+    }
+    pub fn can_buy(&self, agent_id: u64, price: f64, quantity: u64) -> bool {
+        self.balances.get(agent_id) >= price * quantity as f64
+    }
+    pub fn can_sell(&self, id: u128, quantity: u64) -> bool {
+        self.holdings.get_u128(id) >= quantity
+    }
+    pub fn iter(&self) -> std::ops::Range<u64> {
+        0..self.num_of_agents
+    }
+    pub fn try_failed_offers(
+        &self,
+        transactions: &mut Vec<TodoTransactions>,
+        attempting_trade: &Trade,
+    ) {
         if self.try_offers.is_empty() {
             return;
         }
-        for (company_id, new_price) in self.try_offers.iter() {
+        for (id, new_price) in self.try_offers.iter() {
             // 40% chance of retrying
             if random::<f64>() > 0.4 {
                 continue;
@@ -97,74 +209,21 @@ impl Agent {
                 (TradeAction::Sell, -*new_price)
             };
             let can_transact = match action {
-                TradeAction::Buy => self.can_buy(price, attempting_trade.number_of_shares),
-                TradeAction::Sell => self.can_sell(*company_id, attempting_trade.number_of_shares),
+                TradeAction::Buy => {
+                    self.can_buy(get_first(*id), price, attempting_trade.number_of_shares)
+                }
+                TradeAction::Sell => self.can_sell(*id, attempting_trade.number_of_shares),
             };
             if !can_transact {
                 continue;
             }
             transactions.push(TodoTransactions {
-                agent_id,
-                company_id: *company_id,
+                agent_id: get_first(*id),
+                company_id: get_second(*id),
                 strike_price: price,
                 action,
                 trade: attempting_trade.clone(),
             });
-        }
-    }
-}
-
-impl Company {
-    pub fn new(
-        id: u64,
-        name: String,
-        code: [char; SYMBOL_LENGTH],
-        market_value: MarketValue,
-    ) -> Self {
-        Self {
-            id,
-            name,
-            code,
-            market_value,
-        }
-    }
-    pub fn rand() -> Self {
-        Self::new(
-            random(),
-            random_string(),
-            (0..SYMBOL_LENGTH)
-                .map(|_| rand_char())
-                .collect::<Vec<char>>()
-                .try_into()
-                .unwrap(),
-            MarketValue::rand(),
-        )
-    }
-}
-
-pub struct Agents {
-    pub agents: Vec<Agent>,
-    pub agents_search: HashMap<u64, usize>,
-    pub agent_ids: Vec<u64>
-}
-impl Agents {
-    pub fn new(data: Vec<Agent>) -> Self {
-        let agents_search = data.iter().enumerate().map(|(i, x)| (x.id, i)).collect();
-        let agent_ids = data.iter().map(|x| x.id).collect();
-        Self {
-            agents: data,
-            agents_search,
-            agent_ids,
-        }
-    }
-    pub fn get_agent(&self, id: u64) -> Option<&Agent> {
-        self.agents_search.get(&id).map(|&i| &self.agents[i])
-    }
-    pub fn get_mut_agent(&mut self, id: u64) -> Option<&mut Agent> {
-        let idx = self.agents_search.get(&id);
-        match idx {
-            Some(&i) => Some(&mut self.agents[i]),
-            None => None,
         }
     }
     pub fn alert_agents(
@@ -174,74 +233,110 @@ impl Agents {
     ) {
         for (company_id, offers) in expired_trades.iter() {
             for offer in offers.iter() {
-                let Some(agent) = self.get_mut_agent(offer.0.offerer_id) else {
-                    continue;
-                };
-
                 // refund
                 if offer.1 == TradeAction::Sell {
-                    agent.holdings.push(*company_id, offer.0.data.number_of_shares);
+                    self.holdings.push(
+                        offer.0.lifetime,
+                        *company_id,
+                        offer.0.data.number_of_shares,
+                    );
                 } else {
-                    agent.balance += offer.0.strike_price * (offer.0.data.number_of_shares as f64);
+                    self.balances.add(
+                        offer.0.offerer_id,
+                        offer.0.strike_price * (offer.0.data.number_of_shares as f64),
+                    );
                 }
 
-                agent.add_failed_offer(*company_id, offer.0.strike_price, &offer.1);
+                self.add_failed_offer(
+                    *company_id,
+                    offer.0.offerer_id,
+                    offer.0.strike_price,
+                    &offer.1,
+                );
             }
         }
         for (company_id, offers) in expired_options.iter() {
             for offer in offers {
-                let Some(agent) = self.get_mut_agent(offer.0.offerer_id) else {
-                    continue;
-                };
-
                 // refund
                 if offer.1 == TradeAction::Sell {
-                    agent.holdings.push(*company_id, offer.0.data.number_of_shares);
+                    self.holdings.push(
+                        offer.0.lifetime,
+                        *company_id,
+                        offer.0.data.number_of_shares,
+                    );
                 } else {
-                    agent.balance += offer.0.strike_price * (offer.0.data.number_of_shares as f64);
+                    self.balances.add(
+                        offer.0.offerer_id,
+                        offer.0.strike_price * (offer.0.data.number_of_shares as f64),
+                    )
                 }
 
-                agent.add_failed_offer(*company_id, offer.0.strike_price, &offer.1);
+                self.add_failed_offer(
+                    *company_id,
+                    offer.0.offerer_id,
+                    offer.0.strike_price,
+                    &offer.1,
+                );
             }
         }
     }
-    pub fn give_random_shares_to_half_agents(&mut self, company_ids: &Vec<u64>) {
+    pub fn add_failed_offer(
+        &mut self,
+        company_id: u64,
+        agent_id: u64,
+        failed_price: f64,
+        offer_type: &TradeAction,
+    ) {
+        let price = match offer_type {
+            TradeAction::Buy => failed_price,
+            TradeAction::Sell => -failed_price,
+        };
+        self.try_offers
+            .insert(combine(agent_id, company_id), price + failed_price * 0.25);
+    }
+    pub fn give_random_shares_to_half_agents(&mut self, company_ids: &[u64]) {
         for i in 0..(NUM_OF_AGENTS / 2) {
-            let agent = &mut self.agents[i as usize];
             let random_company = company_ids[random::<usize>() % company_ids.len()];
-            agent
-                .holdings
-                .insert(random_company, random::<u64>() % 1000);
+            self.holdings
+                .push(i, random_company, random::<u64>() % 1000);
         }
     }
-    pub fn id_iter(&self) -> std::slice::Iter<'_, u64> {
-        self.agent_ids.iter()
-    }
-    pub fn do_transactions(&mut self, market: &mut Market, transactions: &mut Vec<TodoTransactions>) {
+    pub fn do_transactions(&mut self, market: &mut Market, transactions: &mut [TodoTransactions]) {
         for todo_transaction in transactions.iter() {
             self.trade(
                 market,
                 todo_transaction.company_id,
                 todo_transaction.agent_id,
-                todo_transaction.strike_price,
-                5.0,
+                (todo_transaction.strike_price, 5.0),
                 &todo_transaction.trade,
                 todo_transaction.action.clone(),
             );
         }
     }
-    pub fn clear_failed_transactions(&mut self) {
-        for agent in self.agents.iter_mut() {
-            agent.try_offers.clear();
+    pub fn roll_action(
+        &self,
+        agent_id: u64,
+        company_id: u64,
+        strike_price: f64,
+        trade: &Trade,
+    ) -> Option<TradeAction> {
+        if random::<f64>() > 0.5 {
+            if !self.can_buy(agent_id, strike_price, trade.number_of_shares) {
+                return None;
+            }
+            return Some(TradeAction::Buy);
         }
+        if !self.can_sell(combine(agent_id, company_id), trade.number_of_shares) {
+            return None;
+        }
+        Some(TradeAction::Sell)
     }
     pub fn trade(
         &mut self,
         market: &mut Market,
         company_id: u64,
         agent_id: u64,
-        strike_price: f64,
-        acceptable_strike_price_deviation: f64,
+        (strike_price, acceptable_strike_price_deviation): (f64, f64),
         trade: &Trade,
         action: TradeAction,
     ) {
@@ -253,19 +348,23 @@ impl Agents {
             trade,
             action.clone(),
         );
-        let Some(agent) = self.get_mut_agent(agent_id) else {
-            return;
-        };
         if action == TradeAction::Sell {
-            if let Err(_) = agent.holdings.pop(company_id, trade.number_of_shares) {
+            if !self
+                .holdings
+                .pop(agent_id, company_id, trade.number_of_shares)
+            {
                 return;
             }
         } else {
-            agent.balance -= strike_price * (trade.number_of_shares as f64);
+            if self.balances.get(agent_id) < strike_price * (trade.number_of_shares as f64) {
+                return;
+            }
+            self.balances
+                .add(agent_id, -(strike_price * (trade.number_of_shares as f64)));
         }
 
         match result {
-            Ok(action_state) => handle_action_state(action_state, market, &mut self.agents, company_id),
+            Ok(action_state) => self.handle_action_state(action_state, market, company_id),
             Err(offer_idxs) => handle_offer_idxs(
                 offer_idxs,
                 market,
@@ -277,49 +376,31 @@ impl Agents {
             ),
         }
     }
-}
-
-fn exchange_currency_from_transaction(agents: &mut Vec<Agent>, transaction: &Transaction) {
-    let mut buyer: Option<&mut Agent> = None;
-    let mut seller: Option<&mut Agent> = None;
-    for agent in agents.iter_mut() {
-        if agent.id == transaction.buyer_id {
-            buyer = Some(agent);
-            continue;
-        }
-        if agent.id == transaction.seller_id {
-            seller = Some(agent);
-            continue;
-        }
+    pub fn exchange_currency_from_transaction(&mut self, transaction: &Transaction) {
+        // seller's holdings and buyer's money are resolved at the time of offering
+        self.holdings
+            .pop_from_txn(transaction.buyer_id, transaction);
+        self.balances.add(
+            transaction.seller_id,
+            transaction.strike_price * (transaction.number_of_shares as f64),
+        );
     }
-
-    if buyer.is_none() || seller.is_none() {
-        return;
-    }
-    let buyer = buyer.unwrap();
-    let seller = seller.unwrap();
-    // above this line is a way to getting multiple mutable references to the same vector
-
-    // seller's holdings and buyer's money are resolved at the time of offering
-    buyer.holdings.push_from_txn(transaction);
-    seller.balance += transaction.strike_price * (transaction.number_of_shares as f64);
-}
-
-fn handle_action_state(
-    action_state: ActionState,
-    market: &mut Market,
-    agents: &mut Vec<Agent>,
-    company_id: u64,
-) {
-    match action_state {
-        ActionState::AddedToOffers => {}
-        ActionState::InstantlyResolved(transaction) => {
-            market.add_transaction(company_id, transaction.strike_price);
-            exchange_currency_from_transaction(agents, &transaction);
-        }
-        ActionState::PartiallyResolved(transaction) => {
-            market.add_transaction(company_id, transaction.strike_price);
-            exchange_currency_from_transaction(agents, &transaction);
+    pub fn handle_action_state(
+        &mut self,
+        action_state: ActionState,
+        market: &mut Market,
+        company_id: u64,
+    ) {
+        match action_state {
+            ActionState::AddedToOffers => {}
+            ActionState::InstantlyResolved(transaction) => {
+                market.add_transaction(company_id, transaction.strike_price);
+                self.exchange_currency_from_transaction(&transaction);
+            }
+            ActionState::PartiallyResolved(transaction) => {
+                market.add_transaction(company_id, transaction.strike_price);
+                self.exchange_currency_from_transaction(&transaction);
+            }
         }
     }
 }
@@ -361,33 +442,26 @@ fn handle_offer_idxs(
     market.add_transaction(company_id, transaction.strike_price);
 }
 
-pub struct Companies {
-    pub companies: Vec<Company>,
-    pub company_ids: Vec<u64>,
-}
-
 impl Companies {
-    pub fn new(data: Vec<Company>) -> Self {
-        let company_ids = data.iter().map(|x| x.id).collect();
+    pub fn new() -> Self {
         Self {
-            companies: data,
-            company_ids
+            num_of_companies: NUM_OF_COMPANIES,
         }
     }
-    pub fn load_market_values(&self, market_values: &mut HashMap<u64, MarketValue>) {
-        for company in self.companies.iter() {
-            market_values.insert(company.id, company.market_value.clone());
-        }
+    pub fn load_market_values(&self, _market_values: &mut HashMap<u64, MarketValue>) {
+        // for company in self.companies.iter() {
+        //     market_values.insert(company.id, company.market_value.clone());
+        // }
     }
     pub fn rand_company_id(&self) -> u64 {
-        self.company_ids[rand::random::<usize>() % self.companies.len()]
+        rand::random::<u64>() % self.num_of_companies
     }
-    pub fn dump_market_values(&mut self, market_values: &mut HashMap<u64, MarketValue>) {
-        for company in self.companies.iter_mut() {
-            company.market_value = market_values
-                .get(&company.id)
-                .map(|value| value.clone())
-                .unwrap_or(MarketValue::new());
-        }
+    pub fn dump_market_values(&mut self, _market_values: &mut HashMap<u64, MarketValue>) {
+        // for company in self.companies.iter_mut() {
+        //     company.market_value = market_values
+        //         .get(&company.id)
+        //         .map(|value| value.clone())
+        //         .unwrap_or(MarketValue::new());
+        // }
     }
 }

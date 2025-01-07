@@ -1,4 +1,8 @@
-use crate::{log, logger::Log, trade_house::{Trade, TradeAction}};
+use crate::{
+    log,
+    logger::Log,
+    trade_house::{Trade, TradeAction},
+};
 use serde::{Deserialize, Serialize};
 use std::collections::HashMap;
 
@@ -16,6 +20,17 @@ pub struct Transaction {
     /// The price per share at which the exchange was done
     pub strike_price: f64,
 }
+
+pub struct TodoTransactions {
+    pub agent_id: u64,
+    pub company_id: u64,
+    pub strike_price: f64,
+    pub action: TradeAction,
+    pub trade: Trade,
+}
+
+#[derive(Serialize, Deserialize, Debug, Clone, Default)]
+pub struct AgentHoldings(pub HashMap<u64, u64>);
 
 impl Transaction {
     pub fn new(
@@ -36,20 +51,9 @@ impl Transaction {
     }
 }
 
-pub struct TodoTransactions {
-    pub agent_id: u64,
-    pub company_id: u64,
-    pub strike_price: f64,
-    pub action: TradeAction,
-    pub trade: Trade,
-}
-
-#[derive(Serialize, Deserialize, Debug, Clone)]
-pub struct Holdings(HashMap<u64, u64>);
-
-impl Holdings {
+impl AgentHoldings {
     pub fn new() -> Self {
-        Self(HashMap::new())
+        Self::default()
     }
     pub fn insert(&mut self, company_id: u64, number_of_shares: u64) {
         self.0.insert(company_id, number_of_shares);
@@ -61,56 +65,37 @@ impl Holdings {
         }
     }
     pub fn push_from_txn(&mut self, transaction: &Transaction) {
-        let company = self.0.get_mut(&transaction.company_id);
-        match company {
-            Some(share_count) => {
-                *share_count += transaction.number_of_shares;
-            }
-            None => {
-                self.0
-                    .insert(transaction.company_id, transaction.number_of_shares);
-            }
-        }
+        let Some(share_count) = self.0.get_mut(&transaction.company_id) else {
+            self.0
+                .insert(transaction.company_id, transaction.number_of_shares);
+            return;
+        };
+        *share_count += transaction.number_of_shares;
     }
     pub fn pop_from_txn(&mut self, transaction: &Transaction) -> bool {
-        let company = self.0.get_mut(&transaction.company_id);
-        match company {
-            Some(share_count) => {
-                *share_count -= transaction.number_of_shares;
-                return true;
-            }
-            None => {
-                return false;
-            }
-        }
+        let Some(share_count) = self.0.get_mut(&transaction.company_id) else {
+            return false;
+        };
+        *share_count -= transaction.number_of_shares;
+        true
     }
 
     pub fn push(&mut self, company_id: u64, number_of_shares: u64) {
-        let company = self.0.get_mut(&company_id);
-        match company {
-            Some(share_count) => {
-                *share_count += number_of_shares;
-            }
-            None => {
-                self.0.insert(company_id, number_of_shares);
-            }
-        }
+        let Some(share_count) = self.0.get_mut(&company_id) else {
+            self.0.insert(company_id, number_of_shares);
+            return;
+        };
+        *share_count += number_of_shares;
     }
 
-    pub fn pop(&mut self, company_id: u64, number_of_shares: u64) -> Result<(), ()> {
-        let company = self.0.get_mut(&company_id);
-        match company {
-            Some(share_count) => {
-                if *share_count < number_of_shares {
-                    return Err(());
-                }
-
-                *share_count -= number_of_shares;
-                return Ok(());
-            }
-            None => {
-                return Err(());
-            }
+    pub fn pop(&mut self, company_id: u64, number_of_shares: u64) -> bool {
+        let Some(share_count) = self.0.get_mut(&company_id) else {
+            return false;
+        };
+        if *share_count < number_of_shares {
+            return false;
         }
+        *share_count -= number_of_shares;
+        true
     }
 }

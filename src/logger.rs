@@ -43,7 +43,11 @@ impl Log {
 
     fn fmt(log_type: LogLevel, spacing: &str, message: &str, formatting: bool) -> String {
         let (info_str, warn_str, error_str) = match formatting {
-            true => ("Info".bold().green(), "Warn".bold().yellow(), "Error".bold().red()),
+            true => (
+                "Info".bold().green(),
+                "Warn".bold().yellow(),
+                "Error".bold().red(),
+            ),
             false => ("Info".normal(), "Warn".normal(), "Error".normal()),
         };
         match log_type {
@@ -59,7 +63,7 @@ impl Log {
             return this.info_file(message);
         }
         this.info_stdout(message);
-        return Ok(());
+        Ok(())
     }
     pub fn warn(message: &str) -> Result<(), FileSaveError> {
         let this = Self::new();
@@ -67,7 +71,7 @@ impl Log {
             return this.warn_file(message);
         }
         this.warn_stdout(message);
-        return Ok(());
+        Ok(())
     }
     pub fn critical(message: &str) {
         let this = Self::new();
@@ -94,7 +98,7 @@ impl Log {
         if self.log_level > LogLevel::INFO {
             return Ok(());
         }
-        self.to_file(&Log::fmt(LogLevel::INFO, "", message, false,))
+        self.to_file(&Log::fmt(LogLevel::INFO, "", message, false))
     }
 
     pub fn warn_stdout(&self, message: &str) {
@@ -107,7 +111,7 @@ impl Log {
         if self.log_level > LogLevel::WARN {
             return Ok(());
         }
-        self.to_file(&Log::fmt(LogLevel::WARN, "", message, false,))
+        self.to_file(&Log::fmt(LogLevel::WARN, "", message, false))
     }
 
     pub fn critical_stdout(&self, message: &str) -> ! {
@@ -115,7 +119,7 @@ impl Log {
         process::exit(1);
     }
     pub fn critical_file(&self, message: &str) -> ! {
-        if let Err(e) = self.to_file(&Log::fmt(LogLevel::ERROR, "", message, false,)) {
+        if let Err(e) = self.to_file(&Log::fmt(LogLevel::ERROR, "", message, false)) {
             println!("{:?}", e);
         }
         process::exit(1);
@@ -124,7 +128,12 @@ impl Log {
     pub fn critical_debug_stdout(&self, file: &str, line: u32, message: &str) -> ! {
         println!(
             "{}",
-            Log::fmt(LogLevel::ERROR, &format!("[{}:{}]", file, line), message, true,)
+            Log::fmt(
+                LogLevel::ERROR,
+                &format!("[{}:{}]", file, line),
+                message,
+                true,
+            )
         );
         process::exit(1);
     }
@@ -142,13 +151,9 @@ impl Log {
 
     fn to_file(&self, data: &String) -> Result<(), FileSaveError> {
         let output_file = self.output_file.clone().unwrap();
-        match OpenOptions::new()
-            .write(true)
-            .append(true)
-            .open(&output_file)
-        {
+        match OpenOptions::new().append(true).open(&output_file) {
             Ok(mut file) => {
-                if let Err(_) = writeln!(file, "{}", data) {
+                if writeln!(file, "{}", data).is_err() {
                     return Err(FileSaveError::FailedToOpenFile);
                 }
                 Ok(())
@@ -157,15 +162,13 @@ impl Log {
                 if e.kind() != ErrorKind::NotFound {
                     return Err(FileSaveError::FailedToOpenFile);
                 }
-                match File::create(&output_file) {
-                    Ok(mut f) => {
-                        if let Err(_) = f.write(data.as_bytes()) {
-                            return Err(FileSaveError::FailedToWriteFile);
-                        };
-                        Ok(())
-                    }
-                    Err(_) => Err(FileSaveError::FailedToCreateFile),
-                }
+                let Ok(mut f) = File::create(&output_file) else {
+                    return Err(FileSaveError::FailedToCreateFile);
+                };
+                if f.write(data.as_bytes()).is_err() {
+                    return Err(FileSaveError::FailedToWriteFile);
+                };
+                Ok(())
             }
         }
     }
