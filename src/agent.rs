@@ -145,8 +145,8 @@ impl Balances {
 impl Agents {
     pub fn new() -> Self {
         Self {
-            num_of_agents: NUM_OF_AGENTS,
-            balances: Balances(vec![0.0; NUM_OF_AGENTS as usize]),
+            num_of_agents: 0,
+            balances: Balances(vec![]),
             ..Default::default()
         }
     }
@@ -155,7 +155,7 @@ impl Agents {
         let mut balances = Vec::with_capacity(agents.len());
         let mut holdings = Holdings::default();
         for (i, agent) in agents.iter().enumerate() {
-            balances[i] = agent.balance;
+            balances.push(agent.balance);
             for (company_id, holding) in agent.holding.0.iter() {
                 holdings.insert(i as u64, *company_id, *holding);
             }
@@ -306,8 +306,9 @@ impl Agents {
         self.try_offers
             .insert(combine(agent_id, company_id), price + failed_price * 0.25);
     }
-    pub fn give_random_shares_to_half_agents(&mut self, company_ids: &[u64]) {
-        for i in 0..(NUM_OF_AGENTS / 2) {
+    pub fn give_random_assets(&mut self, company_ids: &[u64]) {
+        for i in 0..NUM_OF_AGENTS {
+            self.balances.add(i, random::<f64>() * 1000.0);
             let random_company = company_ids[random::<usize>() % company_ids.len()];
             self.holdings
                 .push(i, random_company, random::<u64>() % 1000);
@@ -457,8 +458,18 @@ fn handle_offer_idxs(
 impl Companies {
     pub fn new() -> Self {
         Self {
-            num_of_companies: NUM_OF_COMPANIES,
+            num_of_companies: 0,
             market_values: HashMap::new(),
+        }
+    }
+    pub fn rand() -> Self {
+        let mut market_values = HashMap::new();
+        for i in 0..NUM_OF_COMPANIES {
+            market_values.insert(i, MarketValue::rand());
+        }
+        Self {
+            num_of_companies: NUM_OF_COMPANIES,
+            market_values,
         }
     }
     pub fn load(companies: &[Company]) -> Self {

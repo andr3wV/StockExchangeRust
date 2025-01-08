@@ -60,6 +60,7 @@ impl Log {
     pub fn info(message: &str) -> Result<(), FileSaveError> {
         let this = Self::new();
         if this.output_file.is_some() {
+            this.info_stdout(message);
             return this.info_file(message);
         }
         this.info_stdout(message);
@@ -68,6 +69,7 @@ impl Log {
     pub fn warn(message: &str) -> Result<(), FileSaveError> {
         let this = Self::new();
         if this.output_file.is_some() {
+            this.warn_stdout(message);
             return this.warn_file(message);
         }
         this.warn_stdout(message);
@@ -76,6 +78,7 @@ impl Log {
     pub fn critical(message: &str) {
         let this = Self::new();
         if this.output_file.is_some() {
+            println!("{}", Log::fmt(LogLevel::ERROR, "", message, true));
             this.critical_file(message);
         }
         this.critical_stdout(message);
@@ -83,6 +86,15 @@ impl Log {
     pub fn critical_debug(message: &str, file: &str, line: u32) {
         let this = Self::new();
         if this.output_file.is_some() {
+            println!(
+                "{}",
+                Log::fmt(
+                    LogLevel::ERROR,
+                    &format!("[{}:{}]", file, line),
+                    message,
+                    true,
+                )
+            );
             this.critical_debug_file(file, line, message);
         }
         this.critical_debug_stdout(file, line, message);

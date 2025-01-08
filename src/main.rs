@@ -23,11 +23,11 @@ fn main() {
         log!(warn "Agents file not found");
         flag_give_random_stocks_to_random_agents = true;
     }
-    // if company_file.is_ok() {
-    //     log!(info "Loaded companies");
-    // } else {
-    //     log!(warn "Company file not found");
-    // }
+    if company_file.is_ok() {
+        log!(info "Loaded companies");
+    } else {
+        log!(warn "Company file not found");
+    }
 
     // let mut agents = Agents::new(); //agent_file.unwrap_or(rand_agents()));
     let mut agents = if let Ok(agent_data) = agent_file {
@@ -39,7 +39,7 @@ fn main() {
     let mut companies = if let Ok(company_data) = company_file {
         Companies::load(company_data.as_slice())
     } else {
-        Companies::new()
+        Companies::rand()
     };
 
     let mut market = Market::new();
@@ -50,9 +50,11 @@ fn main() {
     // 3. The strike price will be 100.0 +- 10.0, and the acceptable strike price deviation will be 5.0
     // 4. Give random agents some shares to start the buying and selling process IF the agents data file is not found
 
-    let companies_slicer: Vec<u64> = (0..companies.num_of_companies).collect();
-    if flag_give_random_stocks_to_random_agents {
-        agents.give_random_shares_to_half_agents(companies_slicer.as_slice());
+    {
+        let companies_slicer: Vec<u64> = (0..companies.num_of_companies).collect();
+        if flag_give_random_stocks_to_random_agents {
+            agents.give_random_assets(companies_slicer.as_slice());
+        }
     }
 
     let mut expired_trades: HashMap<u64, Vec<FailedOffer<Trade>>> = HashMap::new();
