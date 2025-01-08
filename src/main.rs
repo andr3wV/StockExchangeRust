@@ -1,17 +1,18 @@
-use rand::random;
+use rand::{random, thread_rng, Rng};
 use std::collections::HashMap;
 use stocks::{
-    agent::{Agent, Agents, Companies, Company},
+    entities::{Agent, Agents, Companies, Company},
     load, log,
     logger::Log,
     market::Market,
     max, save,
     trade_house::{FailedOffer, StockOption, Trade},
     transaction::TodoTransactions,
-    AGENTS_DATA_FILENAME, COMPANIES_DATA_FILENAME, MIN_STRIKE_PRICE,
+    AGENTS_DATA_FILENAME, COMPANIES_DATA_FILENAME, MIN_STRIKE_PRICE, NUM_OF_AGENTS,
 };
 
 fn main() {
+    let mut rng = thread_rng();
     let agent_file = load::<Vec<Agent>>(AGENTS_DATA_FILENAME);
     let company_file = load::<Vec<Company>>(COMPANIES_DATA_FILENAME);
 
@@ -29,17 +30,18 @@ fn main() {
         log!(warn "Company file not found");
     }
 
-    // let mut agents = Agents::new(); //agent_file.unwrap_or(rand_agents()));
-    let mut agents = if let Ok(agent_data) = agent_file {
-        Agents::load(agent_data.as_slice())
-    } else {
-        Agents::new()
-    };
-
     let mut companies = if let Ok(company_data) = company_file {
         Companies::load(company_data.as_slice())
     } else {
         Companies::rand()
+    };
+
+    let mut agents = if let Ok(agent_data) = agent_file {
+        Agents::load(agent_data.as_slice())
+    } else {
+        let mut a = Agents::new();
+        a.introduce_new_agents(&mut rng, NUM_OF_AGENTS, companies.num_of_companies);
+        a
     };
 
     let mut market = Market::new();
@@ -50,11 +52,9 @@ fn main() {
     // 3. The strike price will be 100.0 +- 10.0, and the acceptable strike price deviation will be 5.0
     // 4. Give random agents some shares to start the buying and selling process IF the agents data file is not found
 
-    {
-        let companies_slicer: Vec<u64> = (0..companies.num_of_companies).collect();
-        if flag_give_random_stocks_to_random_agents {
-            agents.give_random_assets(companies_slicer.as_slice());
-        }
+    if flag_give_random_stocks_to_random_agents {
+        agents.give_random_preferences(&mut rng, companies.num_of_companies);
+        agents.give_random_assets(&companies);
     }
 
     let mut expired_trades: HashMap<u64, Vec<FailedOffer<Trade>>> = HashMap::new();
@@ -75,13 +75,16 @@ fn main() {
                 );
             }
         }
+        if i % 20 == 0 {
+            // companies.release_budget();
+        }
         agents.alert_agents(&expired_trades, &expired_options);
 
         for agent_id in agents.iter() {
-            let company_id = companies.rand_company_id();
+            let company_id = agents.preferences.get_preferred_random(agent_id, &mut rng);
             let strike_price = max(
                 MIN_STRIKE_PRICE,
-                companies.get_current_price(company_id) + (random::<f64>() - 0.5) * 20.0,
+                companies.get_current_price(company_id) + rng.gen_range(-10.0..10.0),
             );
 
             let action = match agents.roll_action(agent_id, company_id, strike_price, &trade) {

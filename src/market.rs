@@ -1,7 +1,7 @@
 use std::collections::HashMap;
 
 use crate::{
-    agent::MarketValue,
+    entities::MarketValue,
     max, min,
     trade_house::{FailedOffer, Offer, StockOption, Trade, TradeAction, TradeHouse},
     transaction::Transaction,

@@ -5,7 +5,7 @@ use std::{
 
 use serde::{de::DeserializeOwned, Serialize};
 
-pub mod agent;
+pub mod entities;
 pub mod logger;
 pub mod market;
 pub mod trade_house;

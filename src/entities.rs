@@ -1,15 +1,33 @@
 use crate::{
+    log,
+    logger::Log,
     market::{ActionState, Market},
+    max, min,
     trade_house::{FailedOffer, StockOption, Trade, TradeAction},
-    transaction::{AgentHoldings, TodoTransactions, Transaction},
+    transaction::{TodoTransactions, Transaction},
     NUM_OF_AGENTS, NUM_OF_COMPANIES,
 };
-use rand::random;
+use rand::{random, Rng};
 use serde::{Deserialize, Serialize};
 use std::collections::HashMap;
 
+#[derive(Serialize, Deserialize, Debug, Clone, Default)]
+pub struct AgentHoldings(pub HashMap<u64, u64>);
+
 #[derive(Debug, Clone, Default)]
 pub struct Holdings(HashMap<u128, u64>);
+
+#[derive(Debug, Clone, Default, Serialize, Deserialize)]
+pub struct AgentPreferences {
+    pub data: HashMap<u64, u64>,
+    pub sum: u64,
+}
+
+#[derive(Debug, Clone, Default)]
+pub struct Preferences {
+    pub data: HashMap<u128, u64>,
+    pub sums: HashMap<u64, u64>,
+}
 
 #[derive(Debug, Clone, Default)]
 pub struct Balances(Vec<f64>);
@@ -32,6 +50,7 @@ pub struct Agents {
     pub num_of_agents: u64,
     pub holdings: Holdings,
     pub balances: Balances,
+    pub preferences: Preferences,
     pub try_offers: HashMap<u128, f64>,
 }
 
@@ -46,6 +65,7 @@ pub struct Agent {
     pub id: u64,
     pub balance: f64,
     pub holding: AgentHoldings,
+    pub preferences: AgentPreferences,
 }
 
 #[derive(Serialize, Deserialize)]
@@ -133,6 +153,44 @@ impl Holdings {
     }
 }
 
+impl Preferences {
+    pub fn get(&self, agent_id: u64, company_id: u64) -> f64 {
+        let Some(preference) = self.data.get(&combine(agent_id, company_id)) else {
+            return 0.0;
+        };
+        *preference as f64 / self.sums[&agent_id] as f64
+    }
+    pub fn add(&mut self, agent_id: u64, company_id: u64, preference: u64) {
+        let old_preference = self.data.entry(combine(agent_id, company_id)).or_default();
+        *old_preference += preference;
+        let sum = self.sums.entry(agent_id).or_default();
+        *sum += preference;
+    }
+    pub fn sub(&mut self, agent_id: u64, company_id: u64, preference: u64) {
+        let old_preference = self.data.entry(combine(agent_id, company_id)).or_default();
+        let actual_diff = min(*old_preference, preference);
+        *old_preference = max(0, *old_preference - preference);
+        let sum = self.sums.entry(agent_id).or_default();
+        *sum -= actual_diff;
+    }
+    pub fn get_preferred_random(&self, agent_id: u64, rng: &mut impl Rng) -> u64 {
+        let sum = self.sums[&agent_id];
+        let random_preference = rng.gen_range(0..sum);
+        let mut current_sum = 0;
+        for (key, value) in self.data.iter() {
+            if get_first(*key) != agent_id {
+                continue;
+            }
+            current_sum += value;
+            if current_sum >= random_preference {
+                return get_second(*key);
+            }
+        }
+        log!(err "Something is wrong with preference sum tracking, debug: ({}, {})", sum, random_preference);
+        unreachable!();
+    }
+}
+
 impl Balances {
     pub fn get(&self, agent_id: u64) -> f64 {
         self.0[agent_id as usize]
@@ -154,25 +212,48 @@ impl Agents {
         let num_of_agents = agents.len() as u64;
         let mut balances = Vec::with_capacity(agents.len());
         let mut holdings = Holdings::default();
-        for (i, agent) in agents.iter().enumerate() {
+        let mut preferences = Preferences::default();
+        for agent in agents.iter() {
             balances.push(agent.balance);
             for (company_id, holding) in agent.holding.0.iter() {
-                holdings.insert(i as u64, *company_id, *holding);
+                holdings.insert(agent.id, *company_id, *holding);
             }
+            for (company_id, preference) in agent.preferences.data.iter() {
+                preferences
+                    .data
+                    .insert(combine(agent.id, *company_id), *preference);
+            }
+            preferences.sums.insert(agent.id, agent.preferences.sum);
         }
         Self {
             num_of_agents,
             balances: Balances(balances),
             holdings,
+            preferences,
             try_offers: HashMap::new(),
         }
     }
     pub fn save(&self) -> Vec<Agent> {
         let mut agents = Vec::with_capacity(self.num_of_agents as usize);
         for i in 0..self.num_of_agents {
+            let mut preference_sum = 0;
+            let preference_data = self
+                .preferences
+                .data
+                .iter()
+                .filter(|(key, _)| get_first(**key) == i)
+                .map(|(key, value)| {
+                    preference_sum += *value;
+                    (get_second(*key), *value)
+                })
+                .collect();
             agents.push(Agent {
                 id: i,
                 balance: self.balances.get(i),
+                preferences: AgentPreferences {
+                    data: preference_data,
+                    sum: preference_sum,
+                },
                 holding: AgentHoldings(
                     self.holdings
                         .0
@@ -185,12 +266,49 @@ impl Agents {
         }
         agents
     }
-    pub fn introduce_new_agents(&mut self, num_of_agents_to_introduce: u64) {
+    pub fn set_random_preference(&mut self, rng: &mut impl Rng, agent_id: u64, company_id: u64) {
+        let preference = rng.gen_range(0..100);
+        self.preferences
+            .data
+            .insert(combine(agent_id, company_id), preference);
+        let sum = self.preferences.sums.entry(agent_id).or_default();
+        *sum += preference;
+    }
+    pub fn set_random_preferences_for_all_companies(
+        &mut self,
+        rng: &mut impl Rng,
+        agent_id: u64,
+        num_of_companies: u64,
+    ) {
+        let mut sum = 0;
+        for company_id in 0..num_of_companies {
+            let preference: u64 = rng.gen_range(0..100);
+            self.preferences
+                .data
+                .insert(combine(agent_id, company_id), preference);
+            sum += preference;
+        }
+        *self.preferences.sums.entry(agent_id).or_default() = sum;
+    }
+    pub fn give_random_preferences(&mut self, rng: &mut impl Rng, num_of_companies: u64) {
+        for i in 0..NUM_OF_AGENTS {
+            self.set_random_preferences_for_all_companies(rng, i, num_of_companies);
+        }
+    }
+    pub fn introduce_new_agents(
+        &mut self,
+        rng: &mut impl Rng,
+        num_of_agents_to_introduce: u64,
+        num_of_companies: u64,
+    ) {
         let mut introduce_ids: Vec<f64> = (self.num_of_agents
             ..(self.num_of_agents + num_of_agents_to_introduce))
             .map(|_| 0.0)
             .collect();
         self.balances.0.append(&mut introduce_ids);
+        for i in self.num_of_agents..(self.num_of_agents + num_of_agents_to_introduce) {
+            self.set_random_preferences_for_all_companies(rng, i, num_of_companies);
+        }
         self.num_of_agents += num_of_agents_to_introduce;
     }
     pub fn can_buy(&self, agent_id: u64, price: f64, quantity: u64) -> bool {
@@ -306,10 +424,10 @@ impl Agents {
         self.try_offers
             .insert(combine(agent_id, company_id), price + failed_price * 0.25);
     }
-    pub fn give_random_assets(&mut self, company_ids: &[u64]) {
+    pub fn give_random_assets(&mut self, companies: &Companies) {
         for i in 0..NUM_OF_AGENTS {
             self.balances.add(i, random::<f64>() * 1000.0);
-            let random_company = company_ids[random::<usize>() % company_ids.len()];
+            let random_company = companies.rand_company_id();
             self.holdings
                 .push(i, random_company, random::<u64>() % 1000);
         }
