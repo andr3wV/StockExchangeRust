@@ -1,6 +1,7 @@
 use std::collections::HashMap;
 
 use crate::{
+    agent::MarketValue,
     max, min,
     trade_house::{FailedOffer, Offer, StockOption, Trade, TradeAction, TradeHouse},
     transaction::Transaction,
@@ -10,29 +11,13 @@ use serde::{Deserialize, Serialize};
 
 #[derive(Serialize, Deserialize, Debug, Default)]
 pub struct Market {
-    market_values: HashMap<u64, MarketValueTracker>,
-    pub house: TradeHouse,
-}
-
-#[derive(Serialize, Deserialize, Debug, Clone, Default)]
-pub struct MarketValue {
-    /// Current price of a stock as shown for display purposes
-    pub current_price: f64,
-    pub highest_price: f64,
-    pub lowest_price: f64,
-    pub overall_movement_start: f64,
-    pub overall_movement_end: f64,
-}
-
-#[derive(Serialize, Deserialize, Debug)]
-struct MarketValueTracker {
-    market_value: MarketValue,
     /// If the interval is set for 5 seconds
     /// Have a function, called something like tick().
     /// When it is called, the maximum and minimum values in the vec are stored in
     /// `highest_price` and `lowest_price`. And the average is set at `current_price`
     /// Also calculate the standard deviation and store it in `standard_deviation`
-    recent_transactions_strike_prices: Vec<f64>,
+    recent_transactions: HashMap<u64, Vec<f64>>,
+    pub house: TradeHouse,
 }
 
 #[derive(Debug)]
@@ -45,14 +30,6 @@ pub enum ActionState {
 impl Market {
     pub fn new() -> Self {
         Self::default()
-    }
-
-    pub fn dump_market_values(&mut self, market_values: &HashMap<u64, MarketValue>) {
-        for (company_id, market_value) in market_values.iter() {
-            let mut tracker = MarketValueTracker::new();
-            tracker.market_value = market_value.clone();
-            self.market_values.insert(company_id.clone(), tracker);
-        }
     }
 
     pub fn trade(
@@ -173,27 +150,42 @@ impl Market {
     }
 
     pub fn add_transaction(&mut self, company_id: u64, price: f64) {
-        let tracker = self
-            .market_values
-            .entry(company_id)
-            .or_insert(MarketValueTracker::new());
+        let tracker = self.recent_transactions.entry(company_id).or_default();
+        tracker.push(price);
+    }
+    pub fn tick_individual_company(&mut self, company_id: u64, market_value: &mut MarketValue) {
+        let recent_transactions = self.recent_transactions.entry(company_id).or_default();
+        if recent_transactions.is_empty() {
+            market_value.highest_price = market_value.current_price;
+            market_value.lowest_price = market_value.current_price;
+            return;
+        }
+        let max: f64 = recent_transactions
+            .iter()
+            .fold(recent_transactions[0], |a, &b| max(a, b));
+        let min: f64 = recent_transactions
+            .iter()
+            .fold(recent_transactions[0], |a, &b| min(a, b));
+        let sum: f64 = recent_transactions.iter().sum();
+        let avg = sum / (recent_transactions.len() as f64);
 
-        tracker.add_transaction(price);
+        market_value.highest_price = max;
+        market_value.lowest_price = min;
+        market_value.overall_movement_start = market_value.overall_movement_end;
+        market_value.current_price = avg;
+        market_value.overall_movement_end = recent_transactions.last().unwrap().clone();
+
+        self.recent_transactions.clear();
     }
 
-    pub fn tick(
+    pub fn tick_failures(
         &mut self,
-    ) -> (
-        HashMap<u64, MarketValue>,
-        HashMap<u64, Vec<FailedOffer<Trade>>>,
-        HashMap<u64, Vec<FailedOffer<StockOption>>>,
+        expired_trades: &mut HashMap<u64, Vec<FailedOffer<Trade>>>,
+        expired_options: &mut HashMap<u64, Vec<FailedOffer<StockOption>>>,
     ) {
         let house_tick_data = self.house.tick();
-        let mut market_values: HashMap<u64, MarketValue> = HashMap::new();
-        for (id, market_value_tracker) in self.market_values.iter_mut() {
-            market_values.insert(*id, market_value_tracker.tick());
-        }
-        (market_values, house_tick_data.0, house_tick_data.1)
+        expired_trades.extend(house_tick_data.0);
+        expired_options.extend(house_tick_data.1);
     }
 }
 
@@ -209,49 +201,5 @@ impl MarketValue {
             overall_movement_start: random::<f64>() * 100.0,
             overall_movement_end: random::<f64>() * 100.0,
         }
-    }
-}
-
-impl MarketValueTracker {
-    pub fn new() -> Self {
-        Self {
-            market_value: MarketValue::new(),
-            recent_transactions_strike_prices: Vec::new(),
-        }
-    }
-
-    pub fn add_transaction(&mut self, price: f64) {
-        self.recent_transactions_strike_prices.push(price);
-    }
-
-    pub fn tick(&mut self) -> MarketValue {
-        if self.recent_transactions_strike_prices.is_empty() {
-            self.market_value.highest_price = self.market_value.current_price;
-            self.market_value.lowest_price = self.market_value.current_price;
-            return self.market_value.clone();
-        }
-        let max = self
-            .recent_transactions_strike_prices
-            .iter()
-            .fold(self.recent_transactions_strike_prices[0], |a, &b| max(a, b));
-        let min = self
-            .recent_transactions_strike_prices
-            .iter()
-            .fold(self.recent_transactions_strike_prices[0], |a, &b| min(a, b));
-        let sum: f64 = self.recent_transactions_strike_prices.iter().sum();
-        let avg = sum / (self.recent_transactions_strike_prices.len() as f64);
-
-        self.market_value.highest_price = max;
-        self.market_value.lowest_price = min;
-        self.market_value.overall_movement_start = self.market_value.overall_movement_end;
-        self.market_value.current_price = avg;
-        self.market_value.overall_movement_end = self
-            .recent_transactions_strike_prices
-            .last()
-            .unwrap()
-            .clone();
-
-        self.recent_transactions_strike_prices.clear();
-        self.market_value.clone()
     }
 }
