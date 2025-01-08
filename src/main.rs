@@ -1,4 +1,4 @@
-use rand::{random, thread_rng, Rng};
+use rand::{thread_rng, Rng};
 use std::collections::HashMap;
 use stocks::{
     entities::{Agent, Agents, Companies, Company},
@@ -102,6 +102,8 @@ fn main() {
         agents.do_transactions(&mut market, &mut todo_transactions);
         agents.try_offers.clear();
         todo_transactions.clear();
+        expired_trades.clear();
+        expired_options.clear();
     }
 
     if let Err(e) = save(agents.save(), AGENTS_DATA_FILENAME) {

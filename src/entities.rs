@@ -25,7 +25,7 @@ pub struct AgentPreferences {
 
 #[derive(Debug, Clone, Default)]
 pub struct Preferences {
-    pub data: HashMap<u128, u64>,
+    pub data: HashMap<u64, HashMap<u64, u64>>,
     pub sums: HashMap<u64, u64>,
 }
 
@@ -155,35 +155,51 @@ impl Holdings {
 
 impl Preferences {
     pub fn get(&self, agent_id: u64, company_id: u64) -> f64 {
-        let Some(preference) = self.data.get(&combine(agent_id, company_id)) else {
+        // let Some(preference) = self.data.get(&combine(agent_id, company_id)) else {
+        //     return 0.0;
+        // };
+        let Some(company_preferences) = self.data.get(&agent_id) else {
+            return 0.0;
+        };
+        let Some(preference) = company_preferences.get(&company_id) else {
             return 0.0;
         };
         *preference as f64 / self.sums[&agent_id] as f64
     }
     pub fn add(&mut self, agent_id: u64, company_id: u64, preference: u64) {
-        let old_preference = self.data.entry(combine(agent_id, company_id)).or_default();
+        let old_preference = self
+            .data
+            .entry(agent_id)
+            .or_default()
+            .entry(company_id)
+            .or_default();
         *old_preference += preference;
         let sum = self.sums.entry(agent_id).or_default();
         *sum += preference;
     }
     pub fn sub(&mut self, agent_id: u64, company_id: u64, preference: u64) {
-        let old_preference = self.data.entry(combine(agent_id, company_id)).or_default();
+        let old_preference = self
+            .data
+            .entry(agent_id)
+            .or_default()
+            .entry(company_id)
+            .or_default();
         let actual_diff = min(*old_preference, preference);
         *old_preference = max(0, *old_preference - preference);
         let sum = self.sums.entry(agent_id).or_default();
         *sum -= actual_diff;
     }
     pub fn get_preferred_random(&self, agent_id: u64, rng: &mut impl Rng) -> u64 {
+        let Some(company_preferences) = self.data.get(&agent_id) else {
+            return 0;
+        };
         let sum = self.sums[&agent_id];
         let random_preference = rng.gen_range(0..sum);
         let mut current_sum = 0;
-        for (key, value) in self.data.iter() {
-            if get_first(*key) != agent_id {
-                continue;
-            }
+        for (key, value) in company_preferences.iter() {
             current_sum += value;
             if current_sum >= random_preference {
-                return get_second(*key);
+                return *key;
             }
         }
         log!(err "Something is wrong with preference sum tracking, debug: ({}, {})", sum, random_preference);
@@ -218,10 +234,9 @@ impl Agents {
             for (company_id, holding) in agent.holding.0.iter() {
                 holdings.insert(agent.id, *company_id, *holding);
             }
+            let company_preferences = preferences.data.entry(agent.id).or_default();
             for (company_id, preference) in agent.preferences.data.iter() {
-                preferences
-                    .data
-                    .insert(combine(agent.id, *company_id), *preference);
+                company_preferences.insert(*company_id, *preference);
             }
             preferences.sums.insert(agent.id, agent.preferences.sum);
         }
@@ -237,21 +252,16 @@ impl Agents {
         let mut agents = Vec::with_capacity(self.num_of_agents as usize);
         for i in 0..self.num_of_agents {
             let mut preference_sum = 0;
-            let preference_data = self
-                .preferences
-                .data
-                .iter()
-                .filter(|(key, _)| get_first(**key) == i)
-                .map(|(key, value)| {
-                    preference_sum += *value;
-                    (get_second(*key), *value)
-                })
-                .collect();
+            let hp = HashMap::new();
+            let preference_data = self.preferences.data.get(&i).unwrap_or(&hp);
+            for (_, preference) in preference_data.iter() {
+                preference_sum += *preference;
+            }
             agents.push(Agent {
                 id: i,
                 balance: self.balances.get(i),
                 preferences: AgentPreferences {
-                    data: preference_data,
+                    data: preference_data.clone(),
                     sum: preference_sum,
                 },
                 holding: AgentHoldings(
@@ -268,11 +278,16 @@ impl Agents {
     }
     pub fn set_random_preference(&mut self, rng: &mut impl Rng, agent_id: u64, company_id: u64) {
         let preference = rng.gen_range(0..100);
-        self.preferences
+        let old_preference = self
+            .preferences
             .data
-            .insert(combine(agent_id, company_id), preference);
+            .entry(agent_id)
+            .or_default()
+            .entry(company_id)
+            .or_default();
         let sum = self.preferences.sums.entry(agent_id).or_default();
-        *sum += preference;
+        *sum += preference - *old_preference;
+        *old_preference = preference;
     }
     pub fn set_random_preferences_for_all_companies(
         &mut self,
@@ -280,12 +295,11 @@ impl Agents {
         agent_id: u64,
         num_of_companies: u64,
     ) {
+        let company_preferences = self.preferences.data.entry(agent_id).or_default();
         let mut sum = 0;
         for company_id in 0..num_of_companies {
             let preference: u64 = rng.gen_range(0..100);
-            self.preferences
-                .data
-                .insert(combine(agent_id, company_id), preference);
+            company_preferences.insert(company_id, preference);
             sum += preference;
         }
         *self.preferences.sums.entry(agent_id).or_default() = sum;
