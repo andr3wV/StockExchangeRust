@@ -1,13 +1,12 @@
-use std::collections::HashMap;
-
 use crate::{
-    entities::MarketValue,
+    entities::companies::MarketValue,
     max, min,
     trade_house::{FailedOffer, Offer, StockOption, Trade, TradeAction, TradeHouse},
     transaction::Transaction,
 };
 use rand::random;
 use serde::{Deserialize, Serialize};
+use std::collections::HashMap;
 
 #[derive(Serialize, Deserialize, Debug, Default)]
 pub struct Market {
@@ -173,7 +172,7 @@ impl Market {
         market_value.lowest_price = min;
         market_value.overall_movement_start = market_value.overall_movement_end;
         market_value.current_price = avg;
-        market_value.overall_movement_end = recent_transactions.last().unwrap().clone();
+        market_value.overall_movement_end = *recent_transactions.last().unwrap();
 
         self.recent_transactions.clear();
     }

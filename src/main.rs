@@ -1,7 +1,10 @@
 use rand::{thread_rng, Rng};
 use std::collections::HashMap;
 use stocks::{
-    entities::{Agent, Agents, Companies, Company},
+    entities::{
+        agents::{Agent, Agents},
+        companies::{Companies, Company},
+    },
     load, log,
     logger::Log,
     market::Market,

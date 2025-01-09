@@ -1,12 +1,25 @@
 use crate::{
+    entities::companies::Companies,
     market::{ActionState, Market},
     trade_house::{FailedOffer, StockOption, Trade, TradeAction},
     transaction::{TodoTransactions, Transaction},
-    SimulationError, NUM_OF_AGENTS, NUM_OF_COMPANIES, TIMELINE_SIZE_LIMIT,
+    SimulationError, NUM_OF_AGENTS, TIMELINE_SIZE_LIMIT,
 };
 use rand::{random, Rng};
 use serde::{Deserialize, Serialize};
 use std::collections::HashMap;
+
+fn combine(a: u64, b: u64) -> u128 {
+    (a as u128) << 64 | b as u128
+}
+
+fn get_first(a: u128) -> u64 {
+    (a >> 64) as u64
+}
+
+fn get_second(a: u128) -> u64 {
+    (a & 0xFFFFFFFFFFFFFFFF) as u64
+}
 
 #[derive(Serialize, Deserialize, Debug, Clone, Default)]
 pub struct AgentHoldings(pub HashMap<u64, u64>);
@@ -29,19 +42,6 @@ pub struct Preferences(pub Vec<Timeline>);
 #[derive(Debug, Clone, Default)]
 pub struct Balances(Vec<f64>);
 
-#[derive(Serialize, Deserialize, Debug, Clone, Default)]
-pub struct MarketValue {
-    /// Current price of a stock as shown for display purposes
-    pub current_price: f64,
-    pub highest_price: f64,
-    pub lowest_price: f64,
-    pub overall_movement_start: f64,
-    pub overall_movement_end: f64,
-}
-
-pub const SYMBOL_LENGTH: usize = 4;
-pub const MAX_RANDOM_TOTAL_SHARES: u64 = 16000;
-
 #[derive(Default)]
 pub struct Agents {
     pub num_of_agents: u64,
@@ -51,36 +51,12 @@ pub struct Agents {
     pub try_offers: HashMap<u128, f64>,
 }
 
-#[derive(Default)]
-pub struct Companies {
-    pub num_of_companies: u64,
-    pub market_values: Vec<MarketValue>,
-}
-
 #[derive(Serialize, Deserialize)]
 pub struct Agent {
     pub id: u64,
     pub balance: f64,
     pub holding: AgentHoldings,
     pub preferences: AgentPreferences,
-}
-
-#[derive(Serialize, Deserialize)]
-pub struct Company {
-    pub id: u64,
-    pub market_value: MarketValue,
-}
-
-fn combine(a: u64, b: u64) -> u128 {
-    (a as u128) << 64 | b as u128
-}
-
-fn get_first(a: u128) -> u64 {
-    (a >> 64) as u64
-}
-
-fn get_second(a: u128) -> u64 {
-    (a & 0xFFFFFFFFFFFFFFFF) as u64
 }
 
 impl Holdings {
@@ -296,7 +272,7 @@ impl Agents {
         let mut agents = Vec::with_capacity(self.num_of_agents as usize);
         for i in 0..self.num_of_agents {
             let Some(preference_data) = self.preferences.0.get(i as usize) else {
-                continue;
+                return Err(SimulationError::NoData);
             };
             agents.push(Agent {
                 id: i,
@@ -645,56 +621,4 @@ fn handle_offer_idxs(
         );
     }
     market.add_transaction(company_id, transaction.strike_price);
-}
-
-impl Companies {
-    pub fn new() -> Self {
-        Self {
-            num_of_companies: 0,
-            market_values: Vec::new(),
-        }
-    }
-    pub fn rand() -> Self {
-        let mut market_values = Vec::with_capacity(NUM_OF_COMPANIES as usize);
-        market_values
-            .iter_mut()
-            .for_each(|x| *x = MarketValue::rand());
-        Self {
-            num_of_companies: NUM_OF_COMPANIES,
-            market_values,
-        }
-    }
-    pub fn load(companies: &[Company]) -> Self {
-        let num_of_companies = companies.len() as u64;
-        let mut market_values = Vec::with_capacity(num_of_companies as usize);
-        for company in companies.iter() {
-            market_values.push(company.market_value.clone());
-        }
-        Self {
-            num_of_companies,
-            market_values,
-        }
-    }
-    pub fn get_current_price(&self, company_id: u64) -> f64 {
-        match self.market_values.get(company_id as usize) {
-            Some(market_value) => market_value.current_price,
-            None => 0.0,
-        }
-    }
-    pub fn iter(&self) -> std::ops::Range<u64> {
-        0..self.num_of_companies
-    }
-    pub fn rand_company_id(&self) -> u64 {
-        rand::random::<u64>() % self.num_of_companies
-    }
-    pub fn save(&self) -> Vec<Company> {
-        let mut companies = Vec::with_capacity(self.num_of_companies as usize);
-        for (id, market_value) in self.market_values.iter().enumerate() {
-            companies.push(Company {
-                id: id as u64,
-                market_value: market_value.clone(),
-            });
-        }
-        companies
-    }
 }
