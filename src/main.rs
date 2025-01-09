@@ -69,10 +69,11 @@ fn main() {
         if i % 5 == 0 {
             market.tick_failures(&mut expired_trades, &mut expired_options);
             for company_id in companies.iter() {
-                market.tick_individual_company(
-                    company_id,
-                    companies.get_mut_market_value(company_id),
-                );
+                let Some(market_value) = companies.market_values.get_mut(company_id as usize)
+                else {
+                    continue;
+                };
+                market.tick_individual_company(company_id, market_value);
             }
         }
         if i % 20 == 0 {
