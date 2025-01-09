@@ -40,7 +40,8 @@ fn main() {
         Agents::load(agent_data.as_slice())
     } else {
         let mut a = Agents::new();
-        a.introduce_new_agents(&mut rng, NUM_OF_AGENTS, companies.num_of_companies);
+        a.introduce_new_agents(&mut rng, NUM_OF_AGENTS, companies.num_of_companies)
+            .unwrap();
         a
     };
 
@@ -53,8 +54,10 @@ fn main() {
     // 4. Give random agents some shares to start the buying and selling process IF the agents data file is not found
 
     if flag_give_random_stocks_to_random_agents {
-        agents.give_random_preferences(&mut rng, companies.num_of_companies);
-        agents.give_random_assets(&companies);
+        agents
+            .give_random_preferences(&mut rng, companies.num_of_companies)
+            .unwrap();
+        agents.give_random_assets(&mut rng, &companies).unwrap();
     }
 
     let mut expired_trades: HashMap<u64, Vec<FailedOffer<Trade>>> = HashMap::new();
@@ -63,7 +66,9 @@ fn main() {
     let mut todo_transactions: Vec<TodoTransactions> = Vec::new();
 
     let trade = Trade::new(10);
-    agents.try_failed_offers(&mut todo_transactions, &trade);
+    agents
+        .try_failed_offers(&mut rng, &mut todo_transactions, &trade)
+        .unwrap();
     for i in 0..100 {
         println!("{}", i);
         if i % 5 == 0 {
@@ -79,19 +84,20 @@ fn main() {
         if i % 20 == 0 {
             // companies.release_budget();
         }
-        agents.alert_agents(&expired_trades, &expired_options);
+        agents
+            .alert_agents(&expired_trades, &expired_options)
+            .unwrap();
 
         for agent_id in agents.iter() {
-            let company_id = agents.preferences.get_preferred_random(agent_id, &mut rng);
+            let (company_id, action) = agents
+                .preferences
+                .get_preferred_random(agent_id, &mut rng)
+                .unwrap();
             let strike_price = max(
                 MIN_STRIKE_PRICE,
                 companies.get_current_price(company_id) + rng.gen_range(-10.0..10.0),
             );
 
-            let action = match agents.roll_action(agent_id, company_id, strike_price, &trade) {
-                Some(action) => action,
-                None => continue,
-            };
             todo_transactions.push(TodoTransactions {
                 agent_id,
                 company_id,
@@ -100,14 +106,16 @@ fn main() {
                 trade: trade.clone(),
             });
         }
-        agents.do_transactions(&mut market, &mut todo_transactions);
+        agents
+            .do_transactions(&mut market, &mut rng, &mut todo_transactions)
+            .unwrap();
         agents.try_offers.clear();
         todo_transactions.clear();
         expired_trades.clear();
         expired_options.clear();
     }
 
-    if let Err(e) = save(agents.save(), AGENTS_DATA_FILENAME) {
+    if let Err(e) = save(agents.save().unwrap(), AGENTS_DATA_FILENAME) {
         log!(warn "Failed to save agents data\n{:?}", e);
     } else {
         log!(info "Saved agents");

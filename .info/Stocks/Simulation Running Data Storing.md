@@ -6,4 +6,4 @@ But thing went terribly bad as the function `get_mut_agent(hashmap, id)` and `ge
 
 Clearly things had to change. And change they did!
 
-Now I store each property in it's own 
+Now I store each property in it's own `HashMap`

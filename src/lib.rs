@@ -19,6 +19,7 @@ pub static COMPANIES_DATA_FILENAME: &str = "data/companies.yaml";
 
 pub static MIN_STRIKE_PRICE: f64 = 5.0;
 pub static OFFER_LIFETIME: u64 = 10;
+pub static TIMELINE_SIZE_LIMIT: usize = 1000;
 
 #[derive(Debug)]
 pub enum SerializationError {
@@ -32,6 +33,13 @@ pub enum DeserializationError {
     FileNotFound,
     FailedToSerialize,
     FailedToReadFile,
+}
+
+#[derive(Debug)]
+pub enum SimulationError {
+    AgentNotFound,
+    Unspendable,
+    NoData,
 }
 
 pub fn save<T: Serialize>(data: T, file_path: &str) -> Result<(), SerializationError> {

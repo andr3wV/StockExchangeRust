@@ -66,7 +66,7 @@ impl StockOption {
     }
 }
 
-#[derive(PartialEq, Clone)]
+#[derive(PartialEq, Clone, Debug, Serialize, Deserialize, Copy)]
 pub enum TradeAction {
     Buy,
     Sell,

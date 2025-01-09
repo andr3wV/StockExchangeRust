@@ -13,12 +13,12 @@
             "state": {
               "type": "markdown",
               "state": {
-                "file": "Simulation Running Data Storing.md",
+                "file": "How preference is stored and calculated.md",
                 "mode": "source",
                 "source": false
               },
               "icon": "lucide-file",
-              "title": "Simulation Running Data Storing"
+              "title": "How preference is stored and calculated"
             }
           }
         ]
@@ -93,7 +93,7 @@
             "state": {
               "type": "backlink",
               "state": {
-                "file": "Simulation Running Data Storing.md",
+                "file": "How preference is stored and calculated.md",
                 "collapseAll": false,
                 "extraContext": false,
                 "sortOrder": "alphabetical",
@@ -103,7 +103,7 @@
                 "unlinkedCollapsed": true
               },
               "icon": "links-coming-in",
-              "title": "Backlinks for Simulation Running Data Storing"
+              "title": "Backlinks for How preference is stored and calculated"
             }
           },
           {
@@ -112,12 +112,12 @@
             "state": {
               "type": "outgoing-link",
               "state": {
-                "file": "Simulation Running Data Storing.md",
+                "file": "How preference is stored and calculated.md",
                 "linksCollapsed": false,
                 "unlinkedCollapsed": true
               },
               "icon": "links-going-out",
-              "title": "Outgoing links from Simulation Running Data Storing"
+              "title": "Outgoing links from How preference is stored and calculated"
             }
           },
           {
@@ -139,10 +139,10 @@
             "state": {
               "type": "outline",
               "state": {
-                "file": "Simulation Running Data Storing.md"
+                "file": "How preference is stored and calculated.md"
               },
               "icon": "lucide-list",
-              "title": "Outline of Simulation Running Data Storing"
+              "title": "Outline of How preference is stored and calculated"
             }
           }
         ]
@@ -164,8 +164,8 @@
   },
   "active": "77a5807d72b0c7c7",
   "lastOpenFiles": [
-    "How preference is stored and calculated.md",
     "Simulation Running Data Storing.md",
+    "How preference is stored and calculated.md",
     "Welcome.md"
   ]
 }

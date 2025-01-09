@@ -1,11 +1,8 @@
 use crate::{
-    log,
-    logger::Log,
     market::{ActionState, Market},
-    max, min,
     trade_house::{FailedOffer, StockOption, Trade, TradeAction},
     transaction::{TodoTransactions, Transaction},
-    NUM_OF_AGENTS, NUM_OF_COMPANIES,
+    SimulationError, NUM_OF_AGENTS, NUM_OF_COMPANIES, TIMELINE_SIZE_LIMIT,
 };
 use rand::{random, Rng};
 use serde::{Deserialize, Serialize};
@@ -18,16 +15,16 @@ pub struct AgentHoldings(pub HashMap<u64, u64>);
 pub struct Holdings(HashMap<u128, u64>);
 
 #[derive(Debug, Clone, Default, Serialize, Deserialize)]
-pub struct AgentPreferences {
-    pub data: HashMap<u64, u64>,
-    pub sum: u64,
+pub struct Timeline {
+    pub data: Vec<(u64, TradeAction)>,
+    pub target_index: usize,
 }
 
+#[derive(Debug, Clone, Default, Serialize, Deserialize)]
+pub struct AgentPreferences(Timeline);
+
 #[derive(Debug, Clone, Default)]
-pub struct Preferences {
-    pub data: HashMap<u64, HashMap<u64, u64>>,
-    pub sums: HashMap<u64, u64>,
-}
+pub struct Preferences(pub Vec<Timeline>);
 
 #[derive(Debug, Clone, Default)]
 pub struct Balances(Vec<f64>);
@@ -119,18 +116,22 @@ impl Holdings {
             }
         }
     }
-    pub fn pop_from_txn(&mut self, target_agent_id: u64, transaction: &Transaction) -> bool {
+    pub fn pop_from_txn(
+        &mut self,
+        target_agent_id: u64,
+        transaction: &Transaction,
+    ) -> Result<(), SimulationError> {
         let Some(share_count) = self
             .0
             .get_mut(&combine(target_agent_id, transaction.company_id))
         else {
-            return false;
+            return Err(SimulationError::Unspendable);
         };
         if *share_count < transaction.number_of_shares {
-            return false;
+            return Err(SimulationError::Unspendable);
         }
         *share_count -= transaction.number_of_shares;
-        true
+        Ok(())
     }
     pub fn push(&mut self, agent_id: u64, company_id: u64, number_of_shares: u64) {
         let Some(share_count) = self.0.get_mut(&combine(agent_id, company_id)) else {
@@ -140,79 +141,126 @@ impl Holdings {
         };
         *share_count += number_of_shares;
     }
-    pub fn pop(&mut self, agent_id: u64, company_id: u64, number_of_shares: u64) -> bool {
+    pub fn pop(
+        &mut self,
+        agent_id: u64,
+        company_id: u64,
+        number_of_shares: u64,
+    ) -> Result<(), SimulationError> {
         let Some(share_count) = self.0.get_mut(&combine(agent_id, company_id)) else {
-            return false;
+            return Err(SimulationError::Unspendable);
         };
         if *share_count < number_of_shares {
-            return false;
+            return Err(SimulationError::Unspendable);
         }
 
         *share_count -= number_of_shares;
-        true
+        Ok(())
+    }
+}
+
+impl Timeline {
+    pub fn new() -> Self {
+        Self {
+            data: vec![],
+            target_index: 0,
+        }
+    }
+    pub fn add(&mut self, data: &[(u64, TradeAction)]) {
+        if self.data.len() == TIMELINE_SIZE_LIMIT {
+            self.data[self.target_index..].copy_from_slice(data);
+            self.target_index += data.len();
+            if self.target_index >= TIMELINE_SIZE_LIMIT {
+                self.target_index %= TIMELINE_SIZE_LIMIT;
+            }
+            return;
+        }
+        if (data.len() + self.data.len()) <= TIMELINE_SIZE_LIMIT {
+            self.data.extend(data.iter());
+            return;
+        }
+        let extend_size = TIMELINE_SIZE_LIMIT - self.data.len();
+        let destination_index = data.len() - extend_size;
+
+        self.data.extend(data[0..extend_size].iter());
+        self.data[0..destination_index].copy_from_slice(&data[extend_size..]);
+        self.target_index = destination_index;
+    }
+    pub fn get_rng(&self, rng: &mut impl Rng) -> Result<(u64, TradeAction), SimulationError> {
+        if self.data.is_empty() {
+            return Err(SimulationError::NoData);
+        }
+        let index = rng.gen_range(0..self.data.len());
+        Ok(self.data[index])
+    }
+    pub fn recency_bias(
+        &self,
+        bias_size: usize,
+        rng: &mut impl Rng,
+    ) -> Result<(u64, TradeAction), SimulationError> {
+        if bias_size >= self.data.len() {
+            return self.get_rng(rng);
+        }
+        let index = rng.gen_range(0..bias_size);
+        if bias_size < self.target_index {
+            return Ok(self.data[index + (self.target_index - bias_size)]);
+        }
+        if index < self.target_index {
+            return Ok(self.data[index]);
+        }
+        Ok(self.data[self.data.len() - (index - self.target_index) - 1])
     }
 }
 
 impl Preferences {
-    pub fn get(&self, agent_id: u64, company_id: u64) -> f64 {
-        // let Some(preference) = self.data.get(&combine(agent_id, company_id)) else {
-        //     return 0.0;
-        // };
-        let Some(company_preferences) = self.data.get(&agent_id) else {
-            return 0.0;
+    pub fn add(
+        &mut self,
+        agent_id: u64,
+        company_id: u64,
+        preference: u64,
+    ) -> Result<(), SimulationError> {
+        let Some(timeline) = self.0.get_mut(agent_id as usize) else {
+            return Err(SimulationError::AgentNotFound);
         };
-        let Some(preference) = company_preferences.get(&company_id) else {
-            return 0.0;
+        timeline.add(&vec![(company_id, TradeAction::Buy); preference as usize]);
+        Ok(())
+    }
+    pub fn sub(
+        &mut self,
+        agent_id: u64,
+        company_id: u64,
+        preference: u64,
+    ) -> Result<(), SimulationError> {
+        let Some(timeline) = self.0.get_mut(agent_id as usize) else {
+            return Err(SimulationError::AgentNotFound);
         };
-        *preference as f64 / self.sums[&agent_id] as f64
+        timeline.add(&vec![(company_id, TradeAction::Sell); preference as usize]);
+        Ok(())
     }
-    pub fn add(&mut self, agent_id: u64, company_id: u64, preference: u64) {
-        let old_preference = self
-            .data
-            .entry(agent_id)
-            .or_default()
-            .entry(company_id)
-            .or_default();
-        *old_preference += preference;
-        let sum = self.sums.entry(agent_id).or_default();
-        *sum += preference;
-    }
-    pub fn sub(&mut self, agent_id: u64, company_id: u64, preference: u64) {
-        let old_preference = self
-            .data
-            .entry(agent_id)
-            .or_default()
-            .entry(company_id)
-            .or_default();
-        let actual_diff = min(*old_preference, preference);
-        *old_preference = max(0, *old_preference - preference);
-        let sum = self.sums.entry(agent_id).or_default();
-        *sum -= actual_diff;
-    }
-    pub fn get_preferred_random(&self, agent_id: u64, rng: &mut impl Rng) -> u64 {
-        let Some(company_preferences) = self.data.get(&agent_id) else {
-            return 0;
+    pub fn get_preferred_random(
+        &self,
+        agent_id: u64,
+        rng: &mut impl Rng,
+    ) -> Result<(u64, TradeAction), SimulationError> {
+        let Some(agent) = self.0.get(agent_id as usize) else {
+            return Err(SimulationError::AgentNotFound);
         };
-        let sum = self.sums[&agent_id];
-        let random_preference = rng.gen_range(0..sum);
-        let mut current_sum = 0;
-        for (key, value) in company_preferences.iter() {
-            current_sum += value;
-            if current_sum >= random_preference {
-                return *key;
-            }
-        }
-        log!(err "Something is wrong with preference sum tracking, debug: ({}, {})", sum, random_preference);
-        unreachable!();
+        agent.get_rng(rng)
     }
 }
 
 impl Balances {
-    pub fn get(&self, agent_id: u64) -> f64 {
-        self.0[agent_id as usize]
+    pub fn get(&self, agent_id: u64) -> Result<f64, SimulationError> {
+        self.0
+            .get(agent_id as usize)
+            .copied()
+            .ok_or(SimulationError::AgentNotFound)
     }
-    pub fn add(&mut self, agent_id: u64, amount: f64) {
-        self.0[agent_id as usize] += amount;
+    pub fn add(&mut self, agent_id: u64, amount: f64) -> Result<(), SimulationError> {
+        self.0
+            .get_mut(agent_id as usize)
+            .map(|balance| *balance += amount)
+            .ok_or(SimulationError::AgentNotFound)
     }
 }
 
@@ -228,42 +276,32 @@ impl Agents {
         let num_of_agents = agents.len() as u64;
         let mut balances = Vec::with_capacity(agents.len());
         let mut holdings = Holdings::default();
-        let mut preferences = Preferences::default();
+        let mut preferences = Vec::with_capacity(agents.len());
         for agent in agents.iter() {
             balances.push(agent.balance);
             for (company_id, holding) in agent.holding.0.iter() {
                 holdings.insert(agent.id, *company_id, *holding);
             }
-            let company_preferences = preferences.data.entry(agent.id).or_default();
-            for (company_id, preference) in agent.preferences.data.iter() {
-                company_preferences.insert(*company_id, *preference);
-            }
-            preferences.sums.insert(agent.id, agent.preferences.sum);
+            preferences.push(agent.preferences.0.clone());
         }
         Self {
             num_of_agents,
             balances: Balances(balances),
             holdings,
-            preferences,
+            preferences: Preferences(preferences),
             try_offers: HashMap::new(),
         }
     }
-    pub fn save(&self) -> Vec<Agent> {
+    pub fn save(&self) -> Result<Vec<Agent>, SimulationError> {
         let mut agents = Vec::with_capacity(self.num_of_agents as usize);
         for i in 0..self.num_of_agents {
-            let mut preference_sum = 0;
-            let hp = HashMap::new();
-            let preference_data = self.preferences.data.get(&i).unwrap_or(&hp);
-            for (_, preference) in preference_data.iter() {
-                preference_sum += *preference;
-            }
+            let Some(preference_data) = self.preferences.0.get(i as usize) else {
+                continue;
+            };
             agents.push(Agent {
                 id: i,
-                balance: self.balances.get(i),
-                preferences: AgentPreferences {
-                    data: preference_data.clone(),
-                    sum: preference_sum,
-                },
+                balance: self.balances.get(i)?,
+                preferences: AgentPreferences(preference_data.clone()),
                 holding: AgentHoldings(
                     self.holdings
                         .0
@@ -274,59 +312,57 @@ impl Agents {
                 ),
             });
         }
-        agents
-    }
-    pub fn set_random_preference(&mut self, rng: &mut impl Rng, agent_id: u64, company_id: u64) {
-        let preference = rng.gen_range(0..100);
-        let old_preference = self
-            .preferences
-            .data
-            .entry(agent_id)
-            .or_default()
-            .entry(company_id)
-            .or_default();
-        let sum = self.preferences.sums.entry(agent_id).or_default();
-        *sum += preference - *old_preference;
-        *old_preference = preference;
+        Ok(agents)
     }
     pub fn set_random_preferences_for_all_companies(
         &mut self,
         rng: &mut impl Rng,
         agent_id: u64,
         num_of_companies: u64,
-    ) {
-        let company_preferences = self.preferences.data.entry(agent_id).or_default();
-        let mut sum = 0;
+    ) -> Result<(), SimulationError> {
+        let Some(company_preferences) = self.preferences.0.get_mut(agent_id as usize) else {
+            return Err(SimulationError::AgentNotFound);
+        };
         for company_id in 0..num_of_companies {
             let preference: u64 = rng.gen_range(0..100);
-            company_preferences.insert(company_id, preference);
-            sum += preference;
+            company_preferences.add(&vec![(company_id, TradeAction::Buy); preference as usize]);
         }
-        *self.preferences.sums.entry(agent_id).or_default() = sum;
+        Ok(())
     }
-    pub fn give_random_preferences(&mut self, rng: &mut impl Rng, num_of_companies: u64) {
+    pub fn give_random_preferences(
+        &mut self,
+        rng: &mut impl Rng,
+        num_of_companies: u64,
+    ) -> Result<(), SimulationError> {
         for i in 0..NUM_OF_AGENTS {
-            self.set_random_preferences_for_all_companies(rng, i, num_of_companies);
+            self.set_random_preferences_for_all_companies(rng, i, num_of_companies)?;
         }
+        Ok(())
     }
     pub fn introduce_new_agents(
         &mut self,
         rng: &mut impl Rng,
         num_of_agents_to_introduce: u64,
         num_of_companies: u64,
-    ) {
+    ) -> Result<(), SimulationError> {
         let mut introduce_ids: Vec<f64> = (self.num_of_agents
             ..(self.num_of_agents + num_of_agents_to_introduce))
             .map(|_| 0.0)
             .collect();
         self.balances.0.append(&mut introduce_ids);
         for i in self.num_of_agents..(self.num_of_agents + num_of_agents_to_introduce) {
-            self.set_random_preferences_for_all_companies(rng, i, num_of_companies);
+            self.set_random_preferences_for_all_companies(rng, i, num_of_companies)?;
         }
         self.num_of_agents += num_of_agents_to_introduce;
+        Ok(())
     }
-    pub fn can_buy(&self, agent_id: u64, price: f64, quantity: u64) -> bool {
-        self.balances.get(agent_id) >= price * quantity as f64
+    pub fn can_buy(
+        &self,
+        agent_id: u64,
+        price: f64,
+        quantity: u64,
+    ) -> Result<bool, SimulationError> {
+        Ok(self.balances.get(agent_id)? >= price * quantity as f64)
     }
     pub fn can_sell(&self, id: u128, quantity: u64) -> bool {
         self.holdings.get_u128(id) >= quantity
@@ -336,15 +372,16 @@ impl Agents {
     }
     pub fn try_failed_offers(
         &self,
+        rng: &mut impl Rng,
         transactions: &mut Vec<TodoTransactions>,
         attempting_trade: &Trade,
-    ) {
+    ) -> Result<(), SimulationError> {
         if self.try_offers.is_empty() {
-            return;
+            return Ok(());
         }
         for (id, new_price) in self.try_offers.iter() {
             // 40% chance of retrying
-            if random::<f64>() > 0.4 {
+            if rng.gen_ratio(6, 10) {
                 continue;
             }
             let (action, price) = if *new_price > 0.0 {
@@ -354,7 +391,7 @@ impl Agents {
             };
             let can_transact = match action {
                 TradeAction::Buy => {
-                    self.can_buy(get_first(*id), price, attempting_trade.number_of_shares)
+                    self.can_buy(get_first(*id), price, attempting_trade.number_of_shares)?
                 }
                 TradeAction::Sell => self.can_sell(*id, attempting_trade.number_of_shares),
             };
@@ -369,12 +406,13 @@ impl Agents {
                 trade: attempting_trade.clone(),
             });
         }
+        Ok(())
     }
     pub fn alert_agents(
         &mut self,
         expired_trades: &HashMap<u64, Vec<FailedOffer<Trade>>>,
         expired_options: &HashMap<u64, Vec<FailedOffer<StockOption>>>,
-    ) {
+    ) -> Result<(), SimulationError> {
         for (company_id, offers) in expired_trades.iter() {
             for offer in offers.iter() {
                 // refund
@@ -388,7 +426,7 @@ impl Agents {
                     self.balances.add(
                         offer.0.offerer_id,
                         offer.0.strike_price * (offer.0.data.number_of_shares as f64),
-                    );
+                    )?;
                 }
 
                 self.add_failed_offer(
@@ -412,7 +450,7 @@ impl Agents {
                     self.balances.add(
                         offer.0.offerer_id,
                         offer.0.strike_price * (offer.0.data.number_of_shares as f64),
-                    )
+                    )?;
                 }
 
                 self.add_failed_offer(
@@ -423,6 +461,7 @@ impl Agents {
                 );
             }
         }
+        Ok(())
     }
     pub fn add_failed_offer(
         &mut self,
@@ -438,35 +477,51 @@ impl Agents {
         self.try_offers
             .insert(combine(agent_id, company_id), price + failed_price * 0.25);
     }
-    pub fn give_random_assets(&mut self, companies: &Companies) {
+    pub fn give_random_assets(
+        &mut self,
+        rng: &mut impl Rng,
+        companies: &Companies,
+    ) -> Result<(), SimulationError> {
         for i in 0..NUM_OF_AGENTS {
-            self.balances.add(i, random::<f64>() * 1000.0);
+            self.balances.add(i, rng.gen_range(0.0..1000.0))?;
             let random_company = companies.rand_company_id();
             self.holdings
                 .push(i, random_company, random::<u64>() % 1000);
         }
+        Ok(())
     }
-    pub fn do_transactions(&mut self, market: &mut Market, transactions: &mut [TodoTransactions]) {
+    pub fn do_transactions(
+        &mut self,
+        market: &mut Market,
+        rng: &mut impl Rng,
+        transactions: &mut [TodoTransactions],
+    ) -> Result<(), SimulationError> {
         for todo_transaction in transactions.iter() {
             self.trade(
                 market,
+                rng,
                 todo_transaction.company_id,
                 todo_transaction.agent_id,
                 (todo_transaction.strike_price, 5.0),
                 &todo_transaction.trade,
-                todo_transaction.action.clone(),
-            );
+                todo_transaction.action,
+            )?;
         }
+        Ok(())
     }
     pub fn roll_action(
         &self,
+        rng: &mut impl Rng,
         agent_id: u64,
         company_id: u64,
         strike_price: f64,
         trade: &Trade,
     ) -> Option<TradeAction> {
-        if random::<f64>() > 0.5 {
-            if !self.can_buy(agent_id, strike_price, trade.number_of_shares) {
+        if rng.gen_ratio(1, 2) {
+            if !self
+                .can_buy(agent_id, strike_price, trade.number_of_shares)
+                .unwrap_or(false)
+            {
                 return None;
             }
             return Some(TradeAction::Buy);
@@ -479,40 +534,38 @@ impl Agents {
     pub fn trade(
         &mut self,
         market: &mut Market,
+        rng: &mut impl Rng,
         company_id: u64,
         agent_id: u64,
         (strike_price, acceptable_strike_price_deviation): (f64, f64),
         trade: &Trade,
         action: TradeAction,
-    ) {
+    ) -> Result<(), SimulationError> {
         let result = market.trade(
             agent_id,
             company_id,
             strike_price,
             acceptable_strike_price_deviation,
             trade,
-            action.clone(),
+            action,
         );
         if action == TradeAction::Sell {
-            if !self
-                .holdings
-                .pop(agent_id, company_id, trade.number_of_shares)
-            {
-                return;
-            }
+            self.holdings
+                .pop(agent_id, company_id, trade.number_of_shares)?;
         } else {
-            if self.balances.get(agent_id) < strike_price * (trade.number_of_shares as f64) {
-                return;
+            if self.balances.get(agent_id)? < strike_price * (trade.number_of_shares as f64) {
+                return Err(SimulationError::Unspendable);
             }
             self.balances
-                .add(agent_id, -(strike_price * (trade.number_of_shares as f64)));
+                .add(agent_id, -(strike_price * (trade.number_of_shares as f64)))?;
         }
 
         match result {
-            Ok(action_state) => self.handle_action_state(action_state, market, company_id),
+            Ok(action_state) => self.handle_action_state(action_state, market, company_id)?,
             Err(offer_idxs) => handle_offer_idxs(
                 offer_idxs,
                 market,
+                rng,
                 company_id,
                 agent_id,
                 strike_price,
@@ -520,39 +573,46 @@ impl Agents {
                 action,
             ),
         }
+        Ok(())
     }
-    pub fn exchange_currency_from_transaction(&mut self, transaction: &Transaction) {
+    pub fn exchange_currency_from_transaction(
+        &mut self,
+        transaction: &Transaction,
+    ) -> Result<(), SimulationError> {
         // seller's holdings and buyer's money are resolved at the time of offering
         self.holdings
-            .pop_from_txn(transaction.buyer_id, transaction);
+            .pop_from_txn(transaction.buyer_id, transaction)?;
         self.balances.add(
             transaction.seller_id,
             transaction.strike_price * (transaction.number_of_shares as f64),
-        );
+        )?;
+        Ok(())
     }
     pub fn handle_action_state(
         &mut self,
         action_state: ActionState,
         market: &mut Market,
         company_id: u64,
-    ) {
+    ) -> Result<(), SimulationError> {
         match action_state {
             ActionState::AddedToOffers => {}
             ActionState::InstantlyResolved(transaction) => {
                 market.add_transaction(company_id, transaction.strike_price);
-                self.exchange_currency_from_transaction(&transaction);
+                self.exchange_currency_from_transaction(&transaction)?;
             }
             ActionState::PartiallyResolved(transaction) => {
                 market.add_transaction(company_id, transaction.strike_price);
-                self.exchange_currency_from_transaction(&transaction);
+                self.exchange_currency_from_transaction(&transaction)?;
             }
         }
+        Ok(())
     }
 }
 
 fn handle_offer_idxs(
     offer_idxs: Vec<usize>,
     market: &mut Market,
+    rng: &mut impl Rng,
     company_id: u64,
     agent_id: u64,
     strike_price: f64,
@@ -560,7 +620,7 @@ fn handle_offer_idxs(
     action: TradeAction,
 ) {
     // 30% chance of accept this offer
-    if random::<f64>() > 0.3 {
+    if rng.gen_ratio(7, 10) {
         return;
     }
 
@@ -574,7 +634,7 @@ fn handle_offer_idxs(
     let offer = target_offers[offer_idx].clone();
 
     let (transaction, extra_shares_left) =
-        market.trade_offer(company_id, &offer, agent_id, trade, action.clone());
+        market.trade_offer(company_id, &offer, agent_id, trade, action);
     if extra_shares_left > 0 {
         market.house.add_trade_offer(
             agent_id,
@@ -609,7 +669,6 @@ impl Companies {
         let mut market_values = Vec::with_capacity(num_of_companies as usize);
         for company in companies.iter() {
             market_values.push(company.market_value.clone());
-            // market_values.insert(company.id, company.market_value.clone());
         }
         Self {
             num_of_companies,
