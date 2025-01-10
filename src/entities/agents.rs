@@ -1,5 +1,5 @@
 use crate::{
-    entities::companies::Companies,
+    entities::{companies::Companies, Balances},
     market::{ActionState, Market},
     trade_house::{FailedOffer, StockOption, Trade, TradeAction},
     transaction::{TodoTransactions, Transaction},
@@ -38,9 +38,6 @@ pub struct AgentPreferences(Timeline);
 
 #[derive(Debug, Clone, Default)]
 pub struct Preferences(pub Vec<Timeline>);
-
-#[derive(Debug, Clone, Default)]
-pub struct Balances(Vec<f64>);
 
 #[derive(Default)]
 pub struct Agents {
@@ -222,21 +219,6 @@ impl Preferences {
             return Err(SimulationError::AgentNotFound);
         };
         agent.get_rng(rng)
-    }
-}
-
-impl Balances {
-    pub fn get(&self, agent_id: u64) -> Result<f64, SimulationError> {
-        self.0
-            .get(agent_id as usize)
-            .copied()
-            .ok_or(SimulationError::AgentNotFound)
-    }
-    pub fn add(&mut self, agent_id: u64, amount: f64) -> Result<(), SimulationError> {
-        self.0
-            .get_mut(agent_id as usize)
-            .map(|balance| *balance += amount)
-            .ok_or(SimulationError::AgentNotFound)
     }
 }
 
@@ -460,7 +442,7 @@ impl Agents {
     ) -> Result<(), SimulationError> {
         for i in 0..NUM_OF_AGENTS {
             self.balances.add(i, rng.gen_range(0.0..1000.0))?;
-            let random_company = companies.rand_company_id();
+            let random_company = companies.rand_company_id(rng);
             self.holdings
                 .push(i, random_company, random::<u64>() % 1000);
         }
@@ -476,8 +458,7 @@ impl Agents {
             self.trade(
                 market,
                 rng,
-                todo_transaction.company_id,
-                todo_transaction.agent_id,
+                (todo_transaction.company_id, todo_transaction.agent_id),
                 (todo_transaction.strike_price, 5.0),
                 &todo_transaction.trade,
                 todo_transaction.action,
@@ -511,8 +492,7 @@ impl Agents {
         &mut self,
         market: &mut Market,
         rng: &mut impl Rng,
-        company_id: u64,
-        agent_id: u64,
+        (company_id, agent_id): (u64, u64),
         (strike_price, acceptable_strike_price_deviation): (f64, f64),
         trade: &Trade,
         action: TradeAction,

@@ -4,21 +4,21 @@
     "type": "split",
     "children": [
       {
-        "id": "56e4133a6bf04fd5",
+        "id": "ba1f3a9e5bbe324f",
         "type": "tabs",
         "children": [
           {
-            "id": "77a5807d72b0c7c7",
+            "id": "a5ca455c129579b9",
             "type": "leaf",
             "state": {
               "type": "markdown",
               "state": {
-                "file": "How preference is stored and calculated.md",
+                "file": "Company Properties & Budget.md",
                 "mode": "source",
                 "source": false
               },
               "icon": "lucide-file",
-              "title": "How preference is stored and calculated"
+              "title": "Company Properties & Budget"
             }
           }
         ]
@@ -77,7 +77,8 @@
       }
     ],
     "direction": "horizontal",
-    "width": 300
+    "width": 300,
+    "collapsed": true
   },
   "right": {
     "id": "61d65c3582b2caa4",
@@ -162,10 +163,11 @@
       "command-palette:Open command palette": false
     }
   },
-  "active": "77a5807d72b0c7c7",
+  "active": "a5ca455c129579b9",
   "lastOpenFiles": [
-    "Simulation Running Data Storing.md",
+    "Company Properties & Budget.md",
     "How preference is stored and calculated.md",
+    "Simulation Running Data Storing.md",
     "Welcome.md"
   ]
 }

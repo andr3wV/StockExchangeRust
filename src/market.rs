@@ -4,7 +4,7 @@ use crate::{
     trade_house::{FailedOffer, Offer, StockOption, Trade, TradeAction, TradeHouse},
     transaction::Transaction,
 };
-use rand::random;
+use rand::Rng;
 use serde::{Deserialize, Serialize};
 use std::collections::HashMap;
 
@@ -192,13 +192,13 @@ impl MarketValue {
     pub fn new() -> Self {
         Self::default()
     }
-    pub fn rand() -> Self {
+    pub fn rand(rng: &mut impl Rng) -> Self {
         Self {
-            current_price: random::<f64>() * 100.0,
-            highest_price: random::<f64>() * 100.0,
-            lowest_price: random::<f64>() * 100.0,
-            overall_movement_start: random::<f64>() * 100.0,
-            overall_movement_end: random::<f64>() * 100.0,
+            current_price: rng.gen_range(0.0..100.0),
+            highest_price: rng.gen_range(0.0..100.0),
+            lowest_price: rng.gen_range(0.0..100.0),
+            overall_movement_start: rng.gen_range(0.0..100.0),
+            overall_movement_end: rng.gen_range(0.0..100.0),
         }
     }
 }

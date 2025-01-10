@@ -12,6 +12,7 @@ use stocks::{
     trade_house::{FailedOffer, StockOption, Trade},
     transaction::TodoTransactions,
     AGENTS_DATA_FILENAME, COMPANIES_DATA_FILENAME, MIN_STRIKE_PRICE, NUM_OF_AGENTS,
+    NUM_OF_COMPANIES,
 };
 
 fn main() {
@@ -36,7 +37,7 @@ fn main() {
     let mut companies = if let Ok(company_data) = company_file {
         Companies::load(company_data.as_slice())
     } else {
-        Companies::rand()
+        Companies::rand(NUM_OF_COMPANIES as usize, &mut rng)
     };
 
     let mut agents = if let Ok(agent_data) = agent_file {
