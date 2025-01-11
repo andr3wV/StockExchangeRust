@@ -222,11 +222,7 @@ impl Preferences {
 
 impl Agents {
     pub fn new() -> Self {
-        Self {
-            num_of_agents: 0,
-            balances: Balances(vec![]),
-            ..Default::default()
-        }
+        Self::default()
     }
     pub fn load(agents: &[Agent]) -> Self {
         let num_of_agents = agents.len() as u64;
@@ -301,20 +297,25 @@ impl Agents {
         num_of_agents_to_introduce: u64,
         num_of_companies: u64,
     ) -> Result<(), SimulationError> {
-        let mut introduce_ids: Vec<f64> = (self.num_of_agents
-            ..(self.num_of_agents + num_of_agents_to_introduce))
-            .map(|_| rng.gen_range(1000.0..1_000_000.0))
-            .collect();
-        self.balances.0.append(&mut introduce_ids);
-        self.preferences.0.append(&mut vec![
-            Timeline::new();
-            num_of_agents_to_introduce as usize
-        ]);
+        self.balances
+            .0
+            .extend((0..num_of_agents_to_introduce).map(|_| rng.gen_range(1000.0..1_000_000.0)));
+        self.preferences
+            .0
+            .extend((0..num_of_agents_to_introduce).map(|_| Timeline::new()));
         for i in self.num_of_agents..(self.num_of_agents + num_of_agents_to_introduce) {
             self.set_random_preferences_for_all_companies(rng, i, num_of_companies)?;
         }
         self.num_of_agents += num_of_agents_to_introduce;
         Ok(())
+    }
+    pub fn create_agents(&mut self, num_of_agents: u64) -> Vec<u64> {
+        self.balances.0.extend((0..num_of_agents).map(|_| 0.0));
+        self.preferences
+            .0
+            .extend((0..num_of_agents).map(|_| Timeline::new()));
+        self.num_of_agents += num_of_agents;
+        ((self.num_of_agents - num_of_agents)..self.num_of_agents).collect()
     }
     pub fn can_buy(
         &self,

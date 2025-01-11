@@ -27,7 +27,11 @@ The reason this strategy of creating money out of thin air if because people mig
 OR if the demand is high, they might be able to sell at 110.
 So the power is in the hands of the people
 
-Each company has an agent which acts as a seller (as companies and agents have different id groups, so it would be hard to show a `seller_id` for the transaction).
+These transactions need to represented separately from normal transactions
+
+> [!question] Why not have agents which act as representives for a company?
+> I tried it and realized computing their preferences and holdings is wasteful, but to skip those, we would need to store and filter those agents from ALL the agents FOR EACH ITERATION.
+> Ya this is expensive to do
 
 # New company insertion (Company event)
 The IPO (initial public offering) can be calculated from their `expected_profit_rate`.

@@ -50,12 +50,10 @@ impl Companies {
     }
     pub fn rand(number_of_companies: usize, rng: &mut impl Rng) -> Self {
         let mut market_values = Vec::with_capacity(number_of_companies);
-        for market_value in market_values.iter_mut() {
-            *market_value = MarketValue::rand(rng);
-        }
         let mut balances = Vec::with_capacity(number_of_companies);
         for _ in 0..number_of_companies {
             balances.push(rng.gen_range(10_000.0..1_000_000.0));
+            market_values.push(MarketValue::rand(rng));
         }
         Self {
             num_of_companies: number_of_companies as u64,
@@ -79,6 +77,13 @@ impl Companies {
             hype: vec![None; MAX_NUM_OF_HYPE_COMPANIES].try_into().unwrap(),
         }
     }
+    pub fn load_mut(&mut self, companies: &[Company]) {
+        self.num_of_companies += companies.len() as u64;
+        for company in companies.iter() {
+            self.market_values.push(company.market_value.clone());
+            self.balances.push(company.balance);
+        }
+    }
     pub fn get_current_price(&self, company_id: u64) -> f64 {
         match self.market_values.get(company_id as usize) {
             Some(market_value) => market_value.current_price,
@@ -93,10 +98,10 @@ impl Companies {
     }
     pub fn save(&self) -> Vec<Company> {
         let mut companies = Vec::with_capacity(self.num_of_companies as usize);
-        for (id, market_value) in self.market_values.iter().enumerate() {
+        for id in 0..(self.num_of_companies as usize) {
             companies.push(Company {
                 id: id as u64,
-                market_value: market_value.clone(),
+                market_value: self.market_values[id].clone(),
                 balance: self.balances[id],
             });
         }
