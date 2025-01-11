@@ -458,14 +458,7 @@ impl Agents {
         transactions: &mut [TodoTransactions],
     ) -> Result<(), SimulationError> {
         for todo_transaction in transactions.iter() {
-            self.trade(
-                market,
-                rng,
-                (todo_transaction.company_id, todo_transaction.agent_id),
-                (todo_transaction.strike_price, 5.0),
-                &todo_transaction.trade,
-                todo_transaction.action,
-            )?;
+            todo_transaction.trade(market, self, rng)?;
         }
         Ok(())
     }
@@ -490,49 +483,6 @@ impl Agents {
             return None;
         }
         Some(TradeAction::Sell)
-    }
-    pub fn trade(
-        &mut self,
-        market: &mut Market,
-        rng: &mut impl Rng,
-        (company_id, agent_id): (u64, u64),
-        (strike_price, acceptable_strike_price_deviation): (f64, f64),
-        trade: &Trade,
-        action: TradeAction,
-    ) -> Result<(), SimulationError> {
-        let result = market.trade(
-            agent_id,
-            company_id,
-            strike_price,
-            acceptable_strike_price_deviation,
-            trade,
-            action,
-        );
-        if action == TradeAction::Sell {
-            self.holdings
-                .pop(agent_id, company_id, trade.number_of_shares)?;
-        } else {
-            if self.balances.get(agent_id)? < strike_price * (trade.number_of_shares as f64) {
-                return Err(SimulationError::Unspendable);
-            }
-            self.balances
-                .add(agent_id, -(strike_price * (trade.number_of_shares as f64)))?;
-        }
-
-        match result {
-            Ok(action_state) => self.handle_action_state(action_state, market, company_id)?,
-            Err(offer_idxs) => handle_offer_idxs(
-                offer_idxs,
-                market,
-                rng,
-                company_id,
-                agent_id,
-                strike_price,
-                trade,
-                action,
-            ),
-        }
-        Ok(())
     }
     pub fn exchange_currency_from_transaction(
         &mut self,
@@ -566,42 +516,4 @@ impl Agents {
         }
         Ok(())
     }
-}
-
-fn handle_offer_idxs(
-    offer_idxs: Vec<usize>,
-    market: &mut Market,
-    rng: &mut impl Rng,
-    company_id: u64,
-    agent_id: u64,
-    strike_price: f64,
-    trade: &Trade,
-    action: TradeAction,
-) {
-    // 30% chance of accept this offer
-    if rng.gen_ratio(7, 10) {
-        return;
-    }
-
-    let target_offers = match action {
-        TradeAction::Buy => &market.house.get_mut_trade_offers(company_id).seller_offers,
-        TradeAction::Sell => &market.house.get_mut_trade_offers(company_id).buyer_offers,
-    };
-
-    // choose a random offer
-    let offer_idx = offer_idxs[random::<usize>() % offer_idxs.len()];
-    let offer = target_offers[offer_idx].clone();
-
-    let (transaction, extra_shares_left) =
-        market.trade_offer(company_id, &offer, agent_id, trade, action);
-    if extra_shares_left > 0 {
-        market.house.add_trade_offer(
-            agent_id,
-            company_id,
-            strike_price,
-            Trade::new(extra_shares_left),
-            action,
-        );
-    }
-    market.add_transaction(company_id, transaction.strike_price);
 }

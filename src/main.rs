@@ -91,7 +91,7 @@ fn main() {
             }
         }
         if i % 20 == 0 {
-            // companies.release_budget();
+            companies.release_budget(&mut rng);
         }
         agents
             .alert_agents(&expired_trades, &expired_options)
