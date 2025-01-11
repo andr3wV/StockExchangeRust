@@ -11,12 +11,13 @@ use stocks::{
     max, save,
     trade_house::{FailedOffer, StockOption, Trade},
     transaction::TodoTransactions,
-    AGENTS_DATA_FILENAME, COMPANIES_DATA_FILENAME, MIN_STRIKE_PRICE, NUM_OF_AGENTS,
-    NUM_OF_COMPANIES,
+    SimulationError, AGENTS_DATA_FILENAME, COMPANIES_DATA_FILENAME, MIN_STRIKE_PRICE,
+    NUM_OF_AGENTS, NUM_OF_COMPANIES,
 };
 
 fn main() {
     let mut rng = thread_rng();
+    log!(info "Loading local file data");
     let agent_file = load::<Vec<Agent>>(AGENTS_DATA_FILENAME);
     let company_file = load::<Vec<Company>>(COMPANIES_DATA_FILENAME);
 
@@ -44,7 +45,7 @@ fn main() {
         Agents::load(agent_data.as_slice())
     } else {
         let mut a = Agents::new();
-        a.introduce_new_agents(&mut rng, NUM_OF_AGENTS, companies.num_of_companies)
+        a.introduce_new_rand_agents(&mut rng, NUM_OF_AGENTS, companies.num_of_companies)
             .unwrap();
         a
     };
@@ -74,6 +75,10 @@ fn main() {
         .try_failed_offers(&mut rng, &mut todo_transactions, &trade)
         .unwrap();
     for i in 0..100 {
+        agents.try_offers.clear();
+        todo_transactions.clear();
+        expired_trades.clear();
+        expired_options.clear();
         println!("{}", i);
         if i % 5 == 0 {
             market.tick_failures(&mut expired_trades, &mut expired_options);
@@ -110,14 +115,23 @@ fn main() {
                 trade: trade.clone(),
             });
         }
-        agents
-            .do_transactions(&mut market, &mut rng, &mut todo_transactions)
-            .unwrap();
-        agents.try_offers.clear();
-        todo_transactions.clear();
-        expired_trades.clear();
-        expired_options.clear();
+        let Err(e) = agents.do_transactions(&mut market, &mut rng, &mut todo_transactions) else {
+            continue;
+        };
+        match e {
+            SimulationError::AgentNotFound(agent_id) => {
+                log!(warn "Agent not found: {}", agent_id);
+            }
+            SimulationError::NoData => {
+                log!(warn "No data");
+            }
+            SimulationError::Unspendable => {
+                continue;
+            }
+        }
     }
+
+    log!(info "Saving data");
 
     if let Err(e) = save(agents.save().unwrap(), AGENTS_DATA_FILENAME) {
         log!(warn "Failed to save agents data\n{:?}", e);

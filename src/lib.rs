@@ -37,7 +37,7 @@ pub enum DeserializationError {
 
 #[derive(Debug)]
 pub enum SimulationError {
-    AgentNotFound,
+    AgentNotFound(u64),
     Unspendable,
     NoData,
 }

@@ -72,7 +72,7 @@ impl Market {
 
             target_offer.remove(*offer_idx);
             let (transaction, extra_shares_left) =
-                self.trade_offer(company_id, &offer, agent_id, trade, action.clone());
+                self.trade_offer(company_id, &offer, agent_id, trade, action);
 
             if extra_shares_left == 0 {
                 return Ok(ActionState::InstantlyResolved(transaction));

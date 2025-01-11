@@ -9,13 +9,13 @@ pub struct Balances(Vec<f64>);
 impl Balances {
     pub fn get(&self, agent_id: u64) -> Result<f64, SimulationError> {
         let Some(balance) = self.0.get(agent_id as usize) else {
-            return Err(SimulationError::AgentNotFound);
+            return Err(SimulationError::AgentNotFound(agent_id));
         };
         Ok(*balance)
     }
     pub fn add(&mut self, agent_id: u64, amount: f64) -> Result<(), SimulationError> {
         let Some(balance) = self.0.get_mut(agent_id as usize) else {
-            return Err(SimulationError::AgentNotFound);
+            return Err(SimulationError::AgentNotFound(agent_id));
         };
         let result = *balance + amount;
         if result < 0.0 {

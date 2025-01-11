@@ -141,10 +141,8 @@ impl Timeline {
     }
     pub fn add(&mut self, data: &[(u64, TradeAction)]) {
         if self.data.len() == TIMELINE_SIZE_LIMIT {
-            self.data[self.target_index..].copy_from_slice(data);
-            self.target_index += data.len();
-            if self.target_index >= TIMELINE_SIZE_LIMIT {
-                self.target_index %= TIMELINE_SIZE_LIMIT;
+            for (i, data_item) in data.iter().enumerate().take(self.data.len()) {
+                self.data[(i + self.target_index) % TIMELINE_SIZE_LIMIT] = *data_item;
             }
             return;
         }
@@ -193,7 +191,7 @@ impl Preferences {
         preference: u64,
     ) -> Result<(), SimulationError> {
         let Some(timeline) = self.0.get_mut(agent_id as usize) else {
-            return Err(SimulationError::AgentNotFound);
+            return Err(SimulationError::AgentNotFound(agent_id));
         };
         timeline.add(&vec![(company_id, TradeAction::Buy); preference as usize]);
         Ok(())
@@ -205,7 +203,7 @@ impl Preferences {
         preference: u64,
     ) -> Result<(), SimulationError> {
         let Some(timeline) = self.0.get_mut(agent_id as usize) else {
-            return Err(SimulationError::AgentNotFound);
+            return Err(SimulationError::AgentNotFound(agent_id));
         };
         timeline.add(&vec![(company_id, TradeAction::Sell); preference as usize]);
         Ok(())
@@ -216,7 +214,7 @@ impl Preferences {
         rng: &mut impl Rng,
     ) -> Result<(u64, TradeAction), SimulationError> {
         let Some(agent) = self.0.get(agent_id as usize) else {
-            return Err(SimulationError::AgentNotFound);
+            return Err(SimulationError::AgentNotFound(agent_id));
         };
         agent.get_rng(rng)
     }
@@ -279,7 +277,7 @@ impl Agents {
         num_of_companies: u64,
     ) -> Result<(), SimulationError> {
         let Some(company_preferences) = self.preferences.0.get_mut(agent_id as usize) else {
-            return Err(SimulationError::AgentNotFound);
+            return Err(SimulationError::AgentNotFound(agent_id));
         };
         for company_id in 0..num_of_companies {
             let preference: u64 = rng.gen_range(0..100);
@@ -297,7 +295,7 @@ impl Agents {
         }
         Ok(())
     }
-    pub fn introduce_new_agents(
+    pub fn introduce_new_rand_agents(
         &mut self,
         rng: &mut impl Rng,
         num_of_agents_to_introduce: u64,
@@ -305,9 +303,13 @@ impl Agents {
     ) -> Result<(), SimulationError> {
         let mut introduce_ids: Vec<f64> = (self.num_of_agents
             ..(self.num_of_agents + num_of_agents_to_introduce))
-            .map(|_| 0.0)
+            .map(|_| rng.gen_range(1000.0..1_000_000.0))
             .collect();
         self.balances.0.append(&mut introduce_ids);
+        self.preferences.0.append(&mut vec![
+            Timeline::new();
+            num_of_agents_to_introduce as usize
+        ]);
         for i in self.num_of_agents..(self.num_of_agents + num_of_agents_to_introduce) {
             self.set_random_preferences_for_all_companies(rng, i, num_of_companies)?;
         }

@@ -35,10 +35,11 @@ fn rand_hype(
     number_of_companies: usize,
 ) -> [Option<u64>; MAX_NUM_OF_HYPE_COMPANIES] {
     let mut hype = [None; MAX_NUM_OF_HYPE_COMPANIES];
-    // I think clippy is wrong here
-    #[allow(clippy::needless_range_loop)]
-    for i in 0..rng.gen_range(0..MAX_NUM_OF_HYPE_COMPANIES) {
-        hype[i] = Some(rng.gen_range(0..number_of_companies as u64));
+    for hype_item in hype
+        .iter_mut()
+        .take(rng.gen_range(0..MAX_NUM_OF_HYPE_COMPANIES))
+    {
+        *hype_item = Some(rng.gen_range(0..number_of_companies as u64));
     }
     hype
 }
@@ -49,9 +50,9 @@ impl Companies {
     }
     pub fn rand(number_of_companies: usize, rng: &mut impl Rng) -> Self {
         let mut market_values = Vec::with_capacity(number_of_companies);
-        market_values
-            .iter_mut()
-            .for_each(|x| *x = MarketValue::rand(rng));
+        for market_value in market_values.iter_mut() {
+            *market_value = MarketValue::rand(rng);
+        }
         let mut balances = Vec::with_capacity(number_of_companies);
         for _ in 0..number_of_companies {
             balances.push(rng.gen_range(10_000.0..1_000_000.0));
