@@ -26,7 +26,8 @@ pub struct Companies {
     pub selling_shares_prices: Vec<f64>,
     pub selling_shares_counts: Vec<u64>,
     pub expected_profits: Vec<f64>,
-    pub hype: [Option<u64>; MAX_NUM_OF_HYPE_COMPANIES],
+    pub profit_percents: Vec<f64>,
+    pub hype: [Option<(u64, f64)>; MAX_NUM_OF_HYPE_COMPANIES],
 }
 
 #[derive(Serialize, Deserialize)]
@@ -37,18 +38,22 @@ pub struct Company {
     pub selling_shares_count: u64,
     pub selling_shares_price: f64,
     pub expected_profit: f64,
+    pub profit_percent: f64,
 }
 
 fn rand_hype(
     rng: &mut impl Rng,
     number_of_companies: usize,
-) -> [Option<u64>; MAX_NUM_OF_HYPE_COMPANIES] {
+) -> [Option<(u64, f64)>; MAX_NUM_OF_HYPE_COMPANIES] {
     let mut hype = [None; MAX_NUM_OF_HYPE_COMPANIES];
     for hype_item in hype
         .iter_mut()
         .take(rng.gen_range(0..MAX_NUM_OF_HYPE_COMPANIES))
     {
-        *hype_item = Some(rng.gen_range(0..number_of_companies as u64));
+        *hype_item = Some((
+            rng.gen_range(0..number_of_companies as u64),
+            rng.gen_range(-100.0..100.0),
+        ));
     }
     hype
 }
@@ -63,12 +68,21 @@ impl Companies {
         let mut selling_shares_prices = Vec::with_capacity(number_of_companies);
         let mut selling_shares_counts = Vec::with_capacity(number_of_companies);
         let mut expected_profits = Vec::with_capacity(number_of_companies);
+        let mut profit_percents = Vec::with_capacity(number_of_companies);
         for _ in 0..number_of_companies {
             balances.push(rng.gen_range(10_000.0..1_000_000.0));
             market_values.push(MarketValue::rand(rng));
             selling_shares_prices.push(0.0);
             selling_shares_counts.push(0);
-            expected_profits.push(rng.gen_range(100.0..10_000.0));
+
+            let expected_profit = rng.gen_range(100.0..10_000.0);
+            expected_profits.push(expected_profit);
+            let Ok(normal) = Normal::new(0.0, 100.0 / expected_profit) else {
+                // If the normal distribution fails, fuck it then
+                profit_percents.push(0.0);
+                continue;
+            };
+            profit_percents.push(normal.sample(rng) * 100.0);
         }
         Self {
             num_of_companies: number_of_companies as u64,
@@ -78,30 +92,34 @@ impl Companies {
             selling_shares_prices,
             selling_shares_counts,
             expected_profits,
+            profit_percents,
         }
     }
     pub fn load(companies: &[Company]) -> Self {
-        let num_of_companies = companies.len() as u64;
-        let mut market_values = Vec::with_capacity(num_of_companies as usize);
-        let mut balances = Vec::with_capacity(num_of_companies as usize);
-        let mut selling_shares_prices = Vec::with_capacity(num_of_companies as usize);
-        let mut selling_shares_counts = Vec::with_capacity(num_of_companies as usize);
-        let mut expected_profits = Vec::with_capacity(num_of_companies as usize);
+        let num_of_companies = companies.len();
+        let mut market_values = Vec::with_capacity(num_of_companies);
+        let mut balances = Vec::with_capacity(num_of_companies);
+        let mut selling_shares_prices = Vec::with_capacity(num_of_companies);
+        let mut selling_shares_counts = Vec::with_capacity(num_of_companies);
+        let mut expected_profits = Vec::with_capacity(num_of_companies);
+        let mut profit_percents = Vec::with_capacity(num_of_companies);
         for company in companies.iter() {
             market_values.push(company.market_value.clone());
             balances.push(company.balance);
             selling_shares_prices.push(company.selling_shares_price);
             selling_shares_counts.push(company.selling_shares_count);
             expected_profits.push(company.expected_profit);
+            profit_percents.push(company.profit_percent);
         }
         Self {
-            num_of_companies,
+            num_of_companies: num_of_companies as u64,
             market_values,
             balances,
             hype: vec![None; MAX_NUM_OF_HYPE_COMPANIES].try_into().unwrap(),
             selling_shares_prices,
             selling_shares_counts,
             expected_profits,
+            profit_percents,
         }
     }
     pub fn load_mut(&mut self, companies: &[Company]) {
@@ -114,7 +132,23 @@ impl Companies {
             self.selling_shares_counts
                 .push(company.selling_shares_count);
             self.expected_profits.push(company.expected_profit);
+            self.profit_percents.push(company.profit_percent);
         }
+    }
+    pub fn save(&self) -> Vec<Company> {
+        let mut companies = Vec::with_capacity(self.num_of_companies as usize);
+        for id in 0..(self.num_of_companies as usize) {
+            companies.push(Company {
+                id: id as u64,
+                market_value: self.market_values[id].clone(),
+                balance: self.balances[id],
+                selling_shares_price: self.selling_shares_prices[id],
+                selling_shares_count: self.selling_shares_counts[id],
+                expected_profit: self.expected_profits[id],
+                profit_percent: self.profit_percents[id],
+            });
+        }
+        companies
     }
     pub fn get_current_price(&self, company_id: u64) -> f64 {
         match self.market_values.get(company_id as usize) {
@@ -139,6 +173,7 @@ impl Companies {
             let deviation: f64 = normal.sample(rng);
             let profit_percent = deviation * 100.0;
             *balance += self.expected_profits[id] * deviation;
+            self.profit_percents[id] = profit_percent;
             if !(MAX_PROFIT_PERCENT_FOR_NEGATIVE_HYPE_CONSIDERATION
                 ..=MIN_PROFIT_PERCENT_FOR_POSITIVE_HYPE_CONSIDERATION)
                 .contains(&profit_percent)
@@ -146,34 +181,29 @@ impl Companies {
                 hypeable_companies.push((id, profit_percent));
             }
         }
-        hypeable_companies.sort_by(|(_a_id, a_profit_percent), (_b_id, b_profit_percent)| {
-            a_profit_percent.abs().total_cmp(&b_profit_percent.abs())
-        });
-        let last = hypeable_companies.pop();
-        let second_last = hypeable_companies.pop();
-
-        if last.is_none() || second_last.is_none() {
-            return;
-        }
-        let last = last.unwrap();
-        let second_last = second_last.unwrap();
-
-        //todo if the previous hype was stronger, then obviously it won't be replaced
-        self.hype[0] = Some(last.0 as u64);
-        self.hype[1] = Some(second_last.0 as u64);
+        self.send_hype(
+            &mut hypeable_companies
+                .iter()
+                .map(|&(id, profit_percent)| (id as u64, profit_percent))
+                .collect(),
+        );
     }
-    pub fn save(&self) -> Vec<Company> {
-        let mut companies = Vec::with_capacity(self.num_of_companies as usize);
-        for id in 0..(self.num_of_companies as usize) {
-            companies.push(Company {
-                id: id as u64,
-                market_value: self.market_values[id].clone(),
-                balance: self.balances[id],
-                selling_shares_price: self.selling_shares_prices[id],
-                selling_shares_count: self.selling_shares_counts[id],
-                expected_profit: self.expected_profits[id],
-            });
+    pub fn send_hype(&mut self, hypeable_companies: &mut Vec<(u64, f64)>) {
+        let mut item = hypeable_companies.pop();
+        for hype in self.hype.iter_mut() {
+            let Some(clean_item) = item else {
+                return;
+            };
+            let Some(hype) = hype else {
+                *hype = Some(clean_item);
+                item = hypeable_companies.pop();
+                continue;
+            };
+            if clean_item.1.abs() < hype.1.abs() {
+                continue;
+            }
+            *hype = clean_item;
+            item = hypeable_companies.pop();
         }
-        companies
     }
 }
