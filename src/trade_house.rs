@@ -299,11 +299,6 @@ impl<T: Clone + Default> Offers<T> {
             .retain(|offer| offer.id != offer_id as u64);
     }
 
-    pub fn remove_offer_by_idx(&mut self, index: usize) {
-        self.seller_offers.remove(index);
-        self.buyer_offers.remove(index);
-    }
-
     pub fn add_offer(&mut self, trade: Offer<T>, offer_ask: TradeAction) {
         match offer_ask {
             TradeAction::Buy => self.add_buyer_offer(trade),

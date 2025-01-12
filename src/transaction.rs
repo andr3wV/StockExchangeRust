@@ -1,5 +1,5 @@
 use crate::{
-    entities::agents::Agents,
+    entities::{agents::Agents, companies::Companies},
     log,
     logger::Log,
     market::Market,
@@ -168,5 +168,12 @@ impl CompanyTransaction {
             strike_price,
         }
     }
-    pub fn trade(&self, market: &mut Market, agents: &mut Agents, rng: &mut impl Rng) {}
+    pub fn trade(
+        &self,
+        market: &mut Market,
+        agents: &mut Agents,
+        companies: &mut Companies,
+        rng: &mut impl Rng,
+    ) {
+    }
 }

@@ -9,8 +9,8 @@ use stocks::{
     logger::Log,
     market::Market,
     max, save,
-    trade_house::{FailedOffer, StockOption, Trade},
-    transaction::TodoTransactions,
+    trade_house::{FailedOffer, StockOption, Trade, TradeAction},
+    transaction::{CompanyTransaction, TodoTransactions},
     SimulationError, AGENTS_DATA_FILENAME, COMPANIES_DATA_FILENAME, MIN_STRIKE_PRICE,
     NUM_OF_AGENTS, NUM_OF_COMPANIES,
 };
@@ -69,6 +69,7 @@ fn main() {
     let mut expired_options: HashMap<u64, Vec<FailedOffer<StockOption>>> = HashMap::new();
 
     let mut todo_transactions: Vec<TodoTransactions> = Vec::new();
+    let mut todo_company_transactions: Vec<CompanyTransaction> = Vec::new();
 
     let trade = Trade::new(10);
     agents
@@ -106,6 +107,15 @@ fn main() {
                 MIN_STRIKE_PRICE,
                 companies.get_current_price(company_id) + rng.gen_range(-10.0..10.0),
             );
+
+            if action == TradeAction::Buy {
+                todo_company_transactions.push(CompanyTransaction::new(
+                    agent_id,
+                    company_id,
+                    trade.number_of_shares,
+                    strike_price,
+                ));
+            }
 
             todo_transactions.push(TodoTransactions {
                 agent_id,
