@@ -1,8 +1,9 @@
 use crate::{
-    entities::companies::MarketValue,
+    entities::{agents::Agents, companies::MarketValue},
     max, min,
     trade_house::{FailedOffer, Offer, StockOption, Trade, TradeAction, TradeHouse},
-    transaction::Transaction,
+    transaction::{TodoTransactions, Transaction},
+    SimulationError,
 };
 use rand::Rng;
 use serde::{Deserialize, Serialize};
@@ -31,120 +32,146 @@ impl Market {
         Self::default()
     }
 
+    pub fn rand_do_trade(
+        &mut self,
+        rng: &mut impl Rng,
+        agents: &mut Agents,
+        transactions: &mut [TodoTransactions],
+    ) -> Result<(), SimulationError> {
+        for todo_transaction in transactions.iter() {
+            let Ok(Some(possible_offers)) = self.trade(todo_transaction, agents, 5.0) else {
+                continue;
+            };
+
+            if rng.gen_ratio(7, 10) {
+                continue;
+            }
+
+            let offer_idx = rng.gen_range(0..possible_offers.len());
+            let all_offers = self.house.get_mut_trade_offers(todo_transaction.company_id);
+            let target_offers = match todo_transaction.action {
+                TradeAction::Buy => &mut all_offers.seller_offers,
+                TradeAction::Sell => &mut all_offers.buyer_offers,
+            };
+            let offer = target_offers.remove(offer_idx);
+
+            let transaction = self
+                .convert_trade_offer_and_todo_transaction_to_transaction(&offer, todo_transaction);
+            self.add_transaction(todo_transaction.company_id, transaction.strike_price);
+            agents.exchange_assets_from_transaction(&transaction)?;
+        }
+        Ok(())
+    }
     pub fn trade(
         &mut self,
-        agent_id: u64,
-        company_id: u64,
-        strike_price: f64,
+        todo_transaction: &TodoTransactions,
+        agents: &mut Agents,
         acceptable_strike_price_deviation: f64,
-        trade: &Trade,
-        action: TradeAction,
-    ) -> Result<ActionState, Vec<usize>> {
+    ) -> Result<Option<Vec<Offer<Trade>>>, SimulationError> {
+        agents.deduct_assets_from_todotransaction(todo_transaction)?;
+
+        // Check if there is an appropriate trade offer
         let appropriate_trade_offer = self.house.get_appropriate_trade_offer(
-            company_id,
-            strike_price,
+            todo_transaction.company_id,
+            todo_transaction.strike_price,
             acceptable_strike_price_deviation,
-            action.complement(),
+            todo_transaction.action.complement(),
         );
 
-        let all_offers = self.house.get_mut_trade_offers(company_id);
         let Some(offer_idxs) = appropriate_trade_offer else {
+            // If none, then add trade to the house
             self.house
-                .add_trade_offer(agent_id, company_id, strike_price, trade.clone(), action);
-            return Ok(ActionState::AddedToOffers);
+                .add_trade_offer_from_todo_transaction(todo_transaction);
+            return Ok(None);
         };
         if offer_idxs.is_empty() {
+            // If none, then add trade to the house
             self.house
-                .add_trade_offer(agent_id, company_id, strike_price, trade.clone(), action);
-            return Ok(ActionState::AddedToOffers);
+                .add_trade_offer_from_todo_transaction(todo_transaction);
+            return Ok(None);
         }
-        let target_offer = match action {
+        let all_offers = self.house.get_mut_trade_offers(todo_transaction.company_id);
+        let target_offers = match todo_transaction.action {
             TradeAction::Buy => &mut all_offers.seller_offers,
             TradeAction::Sell => &mut all_offers.buyer_offers,
         };
 
         for offer_idx in offer_idxs.iter() {
-            let offer = target_offer[*offer_idx].clone();
+            let offer = target_offers[*offer_idx].clone();
             // Don't autoresolve if it can be slightly worse for us
-            if offer.strike_price > strike_price {
+            if offer.strike_price > todo_transaction.strike_price {
                 continue;
             }
 
-            target_offer.remove(*offer_idx);
-            let (transaction, extra_shares_left) =
-                self.trade_offer(company_id, &offer, agent_id, trade, action);
+            // Resolve the offer
+            target_offers.remove(*offer_idx);
 
-            if extra_shares_left == 0 {
-                return Ok(ActionState::InstantlyResolved(transaction));
-            }
-
-            self.house.add_trade_offer(
-                agent_id,
-                company_id,
-                strike_price,
-                Trade::new(extra_shares_left),
-                action,
-            );
-
-            return Ok(ActionState::PartiallyResolved(transaction));
+            let transaction = self
+                .convert_trade_offer_and_todo_transaction_to_transaction(&offer, todo_transaction);
+            self.add_transaction(todo_transaction.company_id, transaction.strike_price);
+            agents.exchange_assets_from_transaction(&transaction)?;
+            return Ok(None);
         }
-        Err(offer_idxs)
+
+        return Ok(Some(
+            offer_idxs
+                .iter()
+                .map(|idx| target_offers[*idx].clone())
+                .collect(),
+        ));
     }
 
-    /// ! Does not remove the offer from the trade house
-    pub fn trade_offer(
+    pub fn convert_trade_offer_and_todo_transaction_to_transaction(
         &mut self,
-        company_id: u64,
         offer: &Offer<Trade>,
-        accepter_id: u64,
-        trade: &Trade,
-        action: TradeAction,
-    ) -> (Transaction, u64) {
-        let (buyer_id, seller_id) = match action {
-            TradeAction::Buy => (accepter_id, offer.offerer_id),
-            TradeAction::Sell => (offer.offerer_id, accepter_id),
+        todo_transaction: &TodoTransactions,
+    ) -> Transaction {
+        let (buyer_id, seller_id) = match todo_transaction.action {
+            TradeAction::Buy => (todo_transaction.agent_id, offer.offerer_id),
+            TradeAction::Sell => (offer.offerer_id, todo_transaction.agent_id),
         };
 
-        if offer.data.number_of_shares == trade.number_of_shares {
-            return (
-                Transaction::new(
-                    buyer_id,
-                    seller_id,
-                    company_id,
-                    trade.number_of_shares,
-                    offer.strike_price,
-                ),
-                0,
+        if offer.data.number_of_shares == todo_transaction.trade.number_of_shares {
+            self.house
+                .remove_trade_offer(todo_transaction.company_id, offer.clone());
+            return Transaction::new(
+                buyer_id,
+                seller_id,
+                todo_transaction.company_id,
+                todo_transaction.trade.number_of_shares,
+                offer.strike_price,
             );
         }
 
-        let transaction = if offer.data.number_of_shares > trade.number_of_shares {
+        if offer.data.number_of_shares > todo_transaction.trade.number_of_shares {
             self.house.add_trade_offer(
                 offer.offerer_id,
-                company_id,
+                todo_transaction.company_id,
                 offer.strike_price,
-                Trade::new(offer.data.number_of_shares - trade.number_of_shares),
+                Trade::new(offer.data.number_of_shares - todo_transaction.trade.number_of_shares),
                 TradeAction::Sell,
             );
-            Transaction::new(
+            return Transaction::new(
                 buyer_id,
                 seller_id,
-                company_id,
-                trade.number_of_shares,
+                todo_transaction.company_id,
+                todo_transaction.trade.number_of_shares,
                 offer.strike_price,
-            )
-        } else {
-            Transaction::new(
-                buyer_id,
-                seller_id,
-                company_id,
-                offer.data.number_of_shares,
-                offer.strike_price,
-            )
-        };
-        (
-            transaction,
-            max(0, trade.number_of_shares - offer.data.number_of_shares),
+            );
+        }
+        self.house.add_trade_offer(
+            todo_transaction.agent_id,
+            todo_transaction.company_id,
+            todo_transaction.strike_price,
+            Trade::new(todo_transaction.trade.number_of_shares - offer.data.number_of_shares),
+            todo_transaction.action,
+        );
+        Transaction::new(
+            buyer_id,
+            seller_id,
+            todo_transaction.company_id,
+            offer.data.number_of_shares,
+            offer.strike_price,
         )
     }
 

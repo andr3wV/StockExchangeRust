@@ -5,7 +5,7 @@ use crate::{
     transaction::{TodoTransactions, Transaction},
     SimulationError, NUM_OF_AGENTS, TIMELINE_SIZE_LIMIT,
 };
-use rand::{random, Rng};
+use rand::{random, thread_rng, Rng};
 use serde::{Deserialize, Serialize};
 use std::collections::HashMap;
 
@@ -266,45 +266,96 @@ impl Agents {
         }
         Ok(agents)
     }
-    pub fn set_random_preferences_for_all_companies(
+    pub fn rand_set_preferences_for_all_companies(
         &mut self,
         rng: &mut impl Rng,
         agent_id: u64,
         num_of_companies: u64,
     ) -> Result<(), SimulationError> {
+        let preferences = move |_: u64| rng.gen_range(0..100);
+        self.set_preferences_for_all_companies(preferences, agent_id, num_of_companies)
+    }
+    pub fn set_preferences_for_all_companies<F>(
+        &mut self,
+        mut preferences: F,
+        agent_id: u64,
+        num_of_companies: u64,
+    ) -> Result<(), SimulationError>
+    where
+        F: FnMut(u64) -> usize,
+    {
         let Some(company_preferences) = self.preferences.0.get_mut(agent_id as usize) else {
             return Err(SimulationError::AgentNotFound(agent_id));
         };
         for company_id in 0..num_of_companies {
-            let preference: u64 = rng.gen_range(0..100);
-            company_preferences.add(&vec![(company_id, TradeAction::Buy); preference as usize]);
+            company_preferences.add(&vec![
+                (company_id, TradeAction::Buy);
+                preferences(company_id)
+            ]);
         }
         Ok(())
     }
-    pub fn give_random_preferences(
+    pub fn rand_give_preferences(
         &mut self,
-        rng: &mut impl Rng,
+        mut rng: impl Rng + Clone,
         num_of_companies: u64,
     ) -> Result<(), SimulationError> {
-        for i in 0..NUM_OF_AGENTS {
-            self.set_random_preferences_for_all_companies(rng, i, num_of_companies)?;
+        let preference = move |_: u64, _: u64| rng.gen_range(0..100);
+        self.give_preferences(preference, num_of_companies)
+    }
+    pub fn give_preferences<F>(
+        &mut self,
+        preferences: F,
+        num_of_companies: u64,
+    ) -> Result<(), SimulationError>
+    where
+        F: FnMut(u64, u64) -> usize + Clone,
+    {
+        for i in 0..self.num_of_agents {
+            let mut pref_clone = preferences.clone();
+            let agent_preferences = move |company_id: u64| pref_clone(i, company_id);
+            self.set_preferences_for_all_companies(agent_preferences, i, num_of_companies)?;
         }
         Ok(())
     }
-    pub fn introduce_new_rand_agents(
+    pub fn rand_introduce_new_agents(
         &mut self,
-        rng: &mut impl Rng,
+        mut rng: impl Rng + Clone,
+        mut rng2: impl Rng,
         num_of_agents_to_introduce: u64,
         num_of_companies: u64,
     ) -> Result<(), SimulationError> {
-        self.balances
-            .0
-            .extend((0..num_of_agents_to_introduce).map(|_| rng.gen_range(1000.0..1_000_000.0)));
+        let preference = move |_: u64, _: u64| rng.gen_range(0..100);
+        self.introduce_new_agents(
+            preference,
+            &mut (0..num_of_agents_to_introduce)
+                .map(|_| rng2.gen_range(1000.0..1_000_000.0))
+                .collect(),
+            num_of_agents_to_introduce,
+            num_of_companies,
+        )
+    }
+    pub fn introduce_new_agents<F>(
+        &mut self,
+        preferences: F,
+        new_balances: &mut Vec<f64>,
+        num_of_agents_to_introduce: u64,
+        num_of_companies: u64,
+    ) -> Result<(), SimulationError>
+    where
+        F: FnMut(u64, u64) -> usize + Clone,
+    {
+        if new_balances.len() != num_of_agents_to_introduce as usize {
+            return Err(SimulationError::NoData);
+        }
+        self.balances.0.append(new_balances);
         self.preferences
             .0
             .extend((0..num_of_agents_to_introduce).map(|_| Timeline::new()));
         for i in self.num_of_agents..(self.num_of_agents + num_of_agents_to_introduce) {
-            self.set_random_preferences_for_all_companies(rng, i, num_of_companies)?;
+            let mut pref_clone = preferences.clone();
+            let agent_preferences = move |company_id: u64| pref_clone(i, company_id);
+            self.set_preferences_for_all_companies(agent_preferences, i, num_of_companies)?;
         }
         self.num_of_agents += num_of_agents_to_introduce;
         Ok(())
@@ -438,53 +489,57 @@ impl Agents {
         self.try_offers
             .insert(combine(agent_id, company_id), price + failed_price * 0.25);
     }
-    pub fn give_random_assets(
+    pub fn rand_give_assets(
         &mut self,
         rng: &mut impl Rng,
         companies: &Companies,
     ) -> Result<(), SimulationError> {
         for i in 0..NUM_OF_AGENTS {
-            self.balances.add(i, rng.gen_range(0.0..1000.0))?;
             let random_company = companies.rand_company_id(rng);
-            self.holdings
-                .push(i, random_company, random::<u64>() % 1000);
+            self.give_assets(
+                i,
+                random_company,
+                rng.gen_range(0.0..1000.0),
+                rng.gen_range(0..1000),
+            )?;
         }
         Ok(())
     }
-    pub fn do_transactions(
+    pub fn give_assets(
         &mut self,
-        market: &mut Market,
-        rng: &mut impl Rng,
-        transactions: &mut [TodoTransactions],
-    ) -> Result<(), SimulationError> {
-        for todo_transaction in transactions.iter() {
-            todo_transaction.trade(market, self, rng)?;
-        }
-        Ok(())
-    }
-    pub fn roll_action(
-        &self,
-        rng: &mut impl Rng,
         agent_id: u64,
         company_id: u64,
-        strike_price: f64,
-        trade: &Trade,
-    ) -> Option<TradeAction> {
-        if rng.gen_ratio(1, 2) {
-            if !self
-                .can_buy(agent_id, strike_price, trade.number_of_shares)
-                .unwrap_or(false)
-            {
-                return None;
-            }
-            return Some(TradeAction::Buy);
-        }
-        if !self.can_sell(combine(agent_id, company_id), trade.number_of_shares) {
-            return None;
-        }
-        Some(TradeAction::Sell)
+        balance_to_add: f64,
+        holding_to_add: u64,
+    ) -> Result<(), SimulationError> {
+        self.balances.add(agent_id, balance_to_add)?;
+        self.holdings.push(agent_id, company_id, holding_to_add);
+        Ok(())
     }
-    pub fn exchange_currency_from_transaction(
+    pub fn deduct_assets_from_todotransaction(
+        &mut self,
+        todo_transaction: &TodoTransactions,
+    ) -> Result<(), SimulationError> {
+        if todo_transaction.action == TradeAction::Sell {
+            self.holdings.pop(
+                todo_transaction.agent_id,
+                todo_transaction.company_id,
+                todo_transaction.trade.number_of_shares,
+            )?;
+            return Ok(());
+        }
+        if self.balances.get(todo_transaction.agent_id)?
+            < todo_transaction.strike_price * (todo_transaction.trade.number_of_shares as f64)
+        {
+            return Err(SimulationError::Unspendable);
+        }
+        self.balances.add(
+            todo_transaction.agent_id,
+            -(todo_transaction.strike_price * (todo_transaction.trade.number_of_shares as f64)),
+        )?;
+        Ok(())
+    }
+    pub fn exchange_assets_from_transaction(
         &mut self,
         transaction: &Transaction,
     ) -> Result<(), SimulationError> {
@@ -495,25 +550,6 @@ impl Agents {
             transaction.seller_id,
             transaction.strike_price * (transaction.number_of_shares as f64),
         )?;
-        Ok(())
-    }
-    pub fn handle_action_state(
-        &mut self,
-        action_state: ActionState,
-        market: &mut Market,
-        company_id: u64,
-    ) -> Result<(), SimulationError> {
-        match action_state {
-            ActionState::AddedToOffers => {}
-            ActionState::InstantlyResolved(transaction) => {
-                market.add_transaction(company_id, transaction.strike_price);
-                self.exchange_currency_from_transaction(&transaction)?;
-            }
-            ActionState::PartiallyResolved(transaction) => {
-                market.add_transaction(company_id, transaction.strike_price);
-                self.exchange_currency_from_transaction(&transaction)?;
-            }
-        }
         Ok(())
     }
 }

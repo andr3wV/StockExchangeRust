@@ -45,7 +45,9 @@ fn main() {
         Agents::load(agent_data.as_slice())
     } else {
         let mut a = Agents::new();
-        a.introduce_new_rand_agents(&mut rng, NUM_OF_AGENTS, companies.num_of_companies)
+        let rng1 = thread_rng();
+        let rng2 = thread_rng();
+        a.rand_introduce_new_agents(rng1, rng2, NUM_OF_AGENTS, companies.num_of_companies)
             .unwrap();
         a
     };
@@ -59,10 +61,11 @@ fn main() {
     // 4. Give random agents some shares to start the buying and selling process IF the agents data file is not found
 
     if flag_give_random_stocks_to_random_agents {
+        let rng1 = thread_rng();
         agents
-            .give_random_preferences(&mut rng, companies.num_of_companies)
+            .rand_give_preferences(rng1, companies.num_of_companies)
             .unwrap();
-        agents.give_random_assets(&mut rng, &companies).unwrap();
+        agents.rand_give_assets(&mut rng, &companies).unwrap();
     }
 
     let mut expired_trades: HashMap<u64, Vec<FailedOffer<Trade>>> = HashMap::new();
@@ -92,7 +95,7 @@ fn main() {
             }
         }
         if i % 20 == 0 {
-            companies.release_budget(&mut rng);
+            companies.rand_release_news(&mut rng);
         }
         agents
             .alert_agents(&expired_trades, &expired_options)
@@ -125,7 +128,7 @@ fn main() {
                 trade: trade.clone(),
             });
         }
-        let Err(e) = agents.do_transactions(&mut market, &mut rng, &mut todo_transactions) else {
+        let Err(e) = market.rand_do_trade(&mut rng, &mut agents, &mut todo_transactions) else {
             continue;
         };
         match e {

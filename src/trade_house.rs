@@ -1,6 +1,6 @@
 use std::collections::HashMap;
 
-use crate::OFFER_LIFETIME;
+use crate::{transaction::TodoTransactions, OFFER_LIFETIME};
 use rand::random;
 use serde::{Deserialize, Serialize};
 
@@ -113,6 +113,21 @@ impl TradeHouse {
         .push(Offer::new(offerer_id, strike_price, trade));
     }
 
+    pub fn add_trade_offer_from_todo_transaction(&mut self, todo_transaction: &TodoTransactions) {
+        self.add_trade_offer(
+            todo_transaction.agent_id,
+            todo_transaction.company_id,
+            todo_transaction.strike_price,
+            todo_transaction.trade.clone(),
+            todo_transaction.action,
+        );
+    }
+
+    pub fn remove_trade_offer(&mut self, company_id: u64, offer: Offer<Trade>) {
+        self.get_mut_trade_offers(company_id)
+            .remove_offer(offer.id as usize);
+    }
+
     pub fn add_option_offer(
         &mut self,
         offerer_id: u64,
@@ -127,6 +142,11 @@ impl TradeHouse {
             TradeAction::Sell => &mut company_stock_trade.seller_offers,
         })
         .push(Offer::new(offerer_id, strike_price, option));
+    }
+
+    pub fn remove_option_offer(&mut self, company_id: u64, offer: Offer<StockOption>) {
+        self.get_mut_option_offers(company_id)
+            .remove_offer(offer.id as usize);
     }
 
     pub fn get_appropriate_trade_offer(
@@ -293,10 +313,20 @@ impl<T: Clone + Default> Offers<T> {
     }
 
     pub fn remove_offer(&mut self, offer_id: usize) {
-        self.seller_offers
-            .retain(|offer| offer.id != offer_id as u64);
-        self.buyer_offers
-            .retain(|offer| offer.id != offer_id as u64);
+        for i in 0..self.seller_offers.len() {
+            if self.seller_offers[i].id != offer_id as u64 {
+                continue;
+            }
+            self.seller_offers.remove(i);
+            return;
+        }
+        for i in 0..self.buyer_offers.len() {
+            if self.buyer_offers[i].id != offer_id as u64 {
+                continue;
+            }
+            self.buyer_offers.remove(i);
+            return;
+        }
     }
 
     pub fn add_offer(&mut self, trade: Offer<T>, offer_ask: TradeAction) {
