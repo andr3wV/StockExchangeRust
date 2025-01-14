@@ -1,11 +1,10 @@
 use crate::{
     entities::{companies::Companies, Balances},
-    market::{ActionState, Market},
     trade_house::{FailedOffer, StockOption, Trade, TradeAction},
     transaction::{TodoTransactions, Transaction},
     SimulationError, NUM_OF_AGENTS, TIMELINE_SIZE_LIMIT,
 };
-use rand::{random, thread_rng, Rng};
+use rand::Rng;
 use serde::{Deserialize, Serialize};
 use std::collections::HashMap;
 
@@ -62,32 +61,24 @@ impl Holdings {
             .insert(combine(agent_id, company_id), number_of_shares);
     }
     pub fn get(&self, agent_id: u64, company_id: u64) -> u64 {
-        match self.0.get(&combine(agent_id, company_id)) {
-            Some(share_count) => *share_count,
-            None => 0,
-        }
+        self.0
+            .get(&combine(agent_id, company_id))
+            .map(|share_count| *share_count)
+            .unwrap_or(0)
     }
     pub fn get_u128(&self, id: u128) -> u64 {
-        match self.0.get(&id) {
-            Some(share_count) => *share_count,
-            None => 0,
-        }
+        self.0.get(&id).map(|share_count| *share_count).unwrap_or(0)
     }
     pub fn push_from_txn(&mut self, target_agent_id: u64, transaction: &Transaction) {
-        let company = self
-            .0
-            .get_mut(&combine(target_agent_id, transaction.company_id));
-        match company {
-            Some(share_count) => {
-                *share_count += transaction.number_of_shares;
-            }
-            None => {
+        self.0
+            .get_mut(&combine(target_agent_id, transaction.company_id))
+            .map(|share_count| *share_count += transaction.number_of_shares)
+            .unwrap_or_else(|| {
                 self.0.insert(
                     combine(target_agent_id, transaction.company_id),
                     transaction.number_of_shares,
                 );
-            }
-        }
+            });
     }
     pub fn pop_from_txn(
         &mut self,

@@ -12,6 +12,12 @@ pub struct MarketValue {
     pub overall_movement_end: f64,
 }
 
+#[derive(Serialize, Deserialize, Debug, Clone, Default)]
+pub struct Lots {
+    pub strike_price: f64,
+    pub number_of_shares: u64,
+}
+
 pub const SYMBOL_LENGTH: usize = 4;
 pub const MAX_RANDOM_TOTAL_SHARES: u64 = 16000;
 pub const MAX_NUM_OF_HYPE_COMPANIES: usize = 2;
@@ -23,11 +29,10 @@ pub struct Companies {
     pub num_of_companies: u64,
     pub market_values: Vec<MarketValue>,
     pub balances: Vec<f64>,
-    pub selling_shares_prices: Vec<f64>,
-    pub selling_shares_counts: Vec<u64>,
     pub expected_profits: Vec<f64>,
     pub news: Vec<f64>,
     pub hype: [Option<(u64, f64)>; MAX_NUM_OF_HYPE_COMPANIES],
+    pub lots: Vec<Lots>,
 }
 
 #[derive(Serialize, Deserialize)]
@@ -35,10 +40,9 @@ pub struct Company {
     pub id: u64,
     pub market_value: MarketValue,
     pub balance: f64,
-    pub selling_shares_count: u64,
-    pub selling_shares_price: f64,
     pub expected_profit: f64,
     pub news: f64,
+    pub lots: Lots,
 }
 
 fn rand_hype(
@@ -58,6 +62,21 @@ fn rand_hype(
     hype
 }
 
+impl Lots {
+    pub fn new(strike_price: f64, number_of_shares: u64) -> Self {
+        Self {
+            strike_price,
+            number_of_shares,
+        }
+    }
+    pub fn rand(rng: &mut impl Rng) -> Self {
+        Self {
+            strike_price: rng.gen_range(10.0..1_000.0),
+            number_of_shares: rng.gen_range(1..1_000_000),
+        }
+    }
+}
+
 impl Companies {
     pub fn new() -> Self {
         Self::default()
@@ -65,15 +84,13 @@ impl Companies {
     pub fn rand(number_of_companies: usize, rng: &mut impl Rng) -> Self {
         let mut market_values = Vec::with_capacity(number_of_companies);
         let mut balances = Vec::with_capacity(number_of_companies);
-        let mut selling_shares_prices = Vec::with_capacity(number_of_companies);
-        let mut selling_shares_counts = Vec::with_capacity(number_of_companies);
         let mut expected_profits = Vec::with_capacity(number_of_companies);
         let mut news = Vec::with_capacity(number_of_companies);
+        let mut lots = Vec::with_capacity(number_of_companies);
         for _ in 0..number_of_companies {
             balances.push(rng.gen_range(10_000.0..1_000_000.0));
             market_values.push(MarketValue::rand(rng));
-            selling_shares_prices.push(0.0);
-            selling_shares_counts.push(0);
+            lots.push(Lots::rand(rng));
 
             let expected_profit = rng.gen_range(100.0..10_000.0);
             expected_profits.push(expected_profit);
@@ -89,37 +106,33 @@ impl Companies {
             market_values,
             balances,
             hype: rand_hype(rng, number_of_companies),
-            selling_shares_prices,
-            selling_shares_counts,
             expected_profits,
             news,
+            lots,
         }
     }
     pub fn load(companies: &[Company]) -> Self {
         let num_of_companies = companies.len();
         let mut market_values = Vec::with_capacity(num_of_companies);
         let mut balances = Vec::with_capacity(num_of_companies);
-        let mut selling_shares_prices = Vec::with_capacity(num_of_companies);
-        let mut selling_shares_counts = Vec::with_capacity(num_of_companies);
         let mut expected_profits = Vec::with_capacity(num_of_companies);
         let mut news = Vec::with_capacity(num_of_companies);
+        let mut lots = Vec::with_capacity(num_of_companies);
         for company in companies.iter() {
             market_values.push(company.market_value.clone());
             balances.push(company.balance);
-            selling_shares_prices.push(company.selling_shares_price);
-            selling_shares_counts.push(company.selling_shares_count);
             expected_profits.push(company.expected_profit);
             news.push(company.news);
+            lots.push(company.lots.clone());
         }
         Self {
             num_of_companies: num_of_companies as u64,
             market_values,
             balances,
             hype: vec![None; MAX_NUM_OF_HYPE_COMPANIES].try_into().unwrap(),
-            selling_shares_prices,
-            selling_shares_counts,
             expected_profits,
             news,
+            lots,
         }
     }
     pub fn load_mut(&mut self, companies: &[Company]) {
@@ -127,12 +140,9 @@ impl Companies {
         for company in companies.iter() {
             self.market_values.push(company.market_value.clone());
             self.balances.push(company.balance);
-            self.selling_shares_prices
-                .push(company.selling_shares_price);
-            self.selling_shares_counts
-                .push(company.selling_shares_count);
             self.expected_profits.push(company.expected_profit);
             self.news.push(company.news);
+            self.lots.push(company.lots.clone());
         }
     }
     pub fn save(&self) -> Vec<Company> {
@@ -142,19 +152,18 @@ impl Companies {
                 id: id as u64,
                 market_value: self.market_values[id].clone(),
                 balance: self.balances[id],
-                selling_shares_price: self.selling_shares_prices[id],
-                selling_shares_count: self.selling_shares_counts[id],
                 expected_profit: self.expected_profits[id],
                 news: self.news[id],
+                lots: self.lots[id].clone(),
             });
         }
         companies
     }
     pub fn get_current_price(&self, company_id: u64) -> f64 {
-        match self.market_values.get(company_id as usize) {
-            Some(market_value) => market_value.current_price,
-            None => 0.0,
-        }
+        self.market_values
+            .get(company_id as usize)
+            .map(|market_value| market_value.current_price)
+            .unwrap_or(0.0)
     }
     pub fn iter(&self) -> std::ops::Range<u64> {
         0..self.num_of_companies

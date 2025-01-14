@@ -1,12 +1,8 @@
 use crate::{
-    entities::{agents::Agents, companies::Companies},
     log,
     logger::Log,
-    market::Market,
-    trade_house::{Offer, Trade, TradeAction},
-    SimulationError,
+    trade_house::{Trade, TradeAction},
 };
-use rand::Rng;
 use serde::{Deserialize, Serialize};
 
 // Todo Decide if you want to store the Transaction
