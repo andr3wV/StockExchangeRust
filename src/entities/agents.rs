@@ -519,11 +519,6 @@ impl Agents {
             )?;
             return Ok(());
         }
-        if self.balances.get(todo_transaction.agent_id)?
-            < todo_transaction.strike_price * (todo_transaction.trade.number_of_shares as f64)
-        {
-            return Err(SimulationError::Unspendable);
-        }
         self.balances.add(
             todo_transaction.agent_id,
             -(todo_transaction.strike_price * (todo_transaction.trade.number_of_shares as f64)),

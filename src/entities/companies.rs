@@ -1,6 +1,11 @@
 use rand::Rng;
 use rand_distr::{Distribution, Normal};
 use serde::{Deserialize, Serialize};
+use std::collections::HashMap;
+
+use crate::SimulationError;
+
+use super::agents::Agents;
 
 #[derive(Serialize, Deserialize, Debug, Clone, Default)]
 pub struct MarketValue {
@@ -16,10 +21,10 @@ pub struct MarketValue {
 pub struct Lots {
     pub strike_price: f64,
     pub number_of_shares: u64,
+    pub bets: HashMap<u64, u64>,
 }
 
 pub const SYMBOL_LENGTH: usize = 4;
-pub const MAX_RANDOM_TOTAL_SHARES: u64 = 16000;
 pub const MAX_NUM_OF_HYPE_COMPANIES: usize = 2;
 pub const MIN_PROFIT_PERCENT_FOR_POSITIVE_HYPE_CONSIDERATION: f64 = 70.0;
 pub const MAX_PROFIT_PERCENT_FOR_NEGATIVE_HYPE_CONSIDERATION: f64 = -30.0;
@@ -67,13 +72,62 @@ impl Lots {
         Self {
             strike_price,
             number_of_shares,
+            bets: HashMap::new(),
         }
     }
     pub fn rand(rng: &mut impl Rng) -> Self {
         Self {
             strike_price: rng.gen_range(10.0..1_000.0),
             number_of_shares: rng.gen_range(1..1_000_000),
+            bets: HashMap::new(), // no random bets because agents might not have the money for the bet
+                                  // or be uninterested
         }
+    }
+    pub fn add_bet(
+        &mut self,
+        agents: &mut Agents,
+        agent_id: u64,
+        number_of_shares: u64,
+    ) -> Result<(), SimulationError> {
+        agents
+            .balances
+            .add(agent_id, self.strike_price * number_of_shares as f64)?;
+        self.bets
+            .entry(agent_id)
+            .and_modify(|bet| *bet += number_of_shares)
+            .or_insert(number_of_shares);
+        Ok(())
+    }
+    pub fn remove_bet(
+        &mut self,
+        agent_id: u64,
+        number_of_shares: u64,
+    ) -> Result<(), SimulationError> {
+        let Some(bet) = self.bets.get_mut(&agent_id) else {
+            return Err(SimulationError::AgentNotFound(agent_id));
+        };
+        if *bet < number_of_shares {
+            return Err(SimulationError::Unspendable);
+        }
+        *bet -= number_of_shares;
+        if *bet == 0 {
+            self.bets.remove(&agent_id);
+        }
+        Ok(())
+    }
+    pub fn distribute_shares(&mut self, company_id: u64, agents: &mut Agents) {
+        let mut bets = self.bets.iter().collect::<Vec<_>>();
+        bets.sort_by(|a, b| b.1.cmp(a.1));
+        for (&agent_id, &number_of_shares) in bets.iter() {
+            if self.number_of_shares < number_of_shares {
+                continue;
+            }
+            agents
+                .holdings
+                .insert(agent_id, company_id, number_of_shares);
+            self.number_of_shares -= number_of_shares;
+        }
+        self.bets.clear();
     }
 }
 
