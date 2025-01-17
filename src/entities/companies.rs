@@ -1,5 +1,7 @@
-use super::agents::Agents;
-use crate::SimulationError;
+use crate::{
+    entities::agents::Agents, trade_house::TradeAction, transaction::TodoTransactions,
+    SimulationError,
+};
 use rand::Rng;
 use rand_distr::{Distribution, Normal};
 use serde::{Deserialize, Serialize};
@@ -18,8 +20,10 @@ pub struct MarketValue {
 #[derive(Serialize, Deserialize, Debug, Clone, Default)]
 pub struct Lots {
     pub strike_price: f64,
-    pub number_of_shares: u64,
+    pub number_of_lots: u64,
+    pub lot_size: u64,
     pub bets: HashMap<u64, u64>,
+    pub total_num_of_bets: u64,
 }
 
 pub const SYMBOL_LENGTH: usize = 4;
@@ -36,6 +40,7 @@ pub struct Companies {
     pub news: Vec<f64>,
     pub hype: [Option<(u64, f64)>; MAX_NUM_OF_HYPE_COMPANIES],
     pub lots: Vec<Lots>,
+    pub lot_finalization_times: Vec<u64>,
 }
 
 #[derive(Serialize, Deserialize)]
@@ -46,6 +51,7 @@ pub struct Company {
     pub expected_profit: f64,
     pub news: f64,
     pub lots: Lots,
+    pub lot_finalization_time: u64,
 }
 
 fn rand_hype(
@@ -65,18 +71,26 @@ fn rand_hype(
     hype
 }
 
+fn news_to_probability(news: f64) -> f64 {
+    1.0 - (-news * news).exp()
+}
+
 impl Lots {
-    pub fn new(strike_price: f64, number_of_shares: u64) -> Self {
+    pub fn new(strike_price: f64, number_of_lots: u64, lot_size: u64) -> Self {
         Self {
             strike_price,
-            number_of_shares,
+            number_of_lots,
+            lot_size,
             bets: HashMap::new(),
+            total_num_of_bets: 0,
         }
     }
     pub fn rand(rng: &mut impl Rng) -> Self {
         Self {
             strike_price: rng.gen_range(10.0..1_000.0),
-            number_of_shares: rng.gen_range(1..1_000_000),
+            number_of_lots: rng.gen_range(1..1_000) * 100, // keep it a multiple of 100,
+            lot_size: rng.gen_range(1..10) * 10,           // keep it a multiple of 10
+            total_num_of_bets: 0,
             bets: HashMap::new(), // no random bets because agents might not have the money for the bet
                                   // or be uninterested
         }
@@ -85,46 +99,84 @@ impl Lots {
         &mut self,
         agents: &mut Agents,
         agent_id: u64,
-        number_of_shares: u64,
+        number_of_lots: u64,
     ) -> Result<(), SimulationError> {
-        agents
-            .balances
-            .add(agent_id, self.strike_price * number_of_shares as f64)?;
+        agents.balances.add(
+            agent_id,
+            -(self.strike_price * (self.lot_size * number_of_lots) as f64),
+        )?;
         self.bets
             .entry(agent_id)
-            .and_modify(|bet| *bet += number_of_shares)
-            .or_insert(number_of_shares);
+            .and_modify(|bet| *bet += number_of_lots)
+            .or_insert(number_of_lots);
+        self.total_num_of_bets += number_of_lots;
         Ok(())
     }
     pub fn remove_bet(
         &mut self,
+        agents: &mut Agents,
         agent_id: u64,
-        number_of_shares: u64,
+        number_of_lots: u64,
     ) -> Result<(), SimulationError> {
         let Some(bet) = self.bets.get_mut(&agent_id) else {
             return Err(SimulationError::AgentNotFound(agent_id));
         };
-        if *bet < number_of_shares {
+        if *bet < number_of_lots {
             return Err(SimulationError::Unspendable);
         }
-        *bet -= number_of_shares;
+        agents.balances.add(
+            agent_id,
+            self.strike_price * (self.lot_size * number_of_lots) as f64,
+        )?;
+
+        *bet -= number_of_lots;
         if *bet == 0 {
             self.bets.remove(&agent_id);
         }
+        self.total_num_of_bets -= number_of_lots;
         Ok(())
+    }
+    pub fn get_bet(&self, agent_id: u64) -> u64 {
+        self.bets.get(&agent_id).unwrap_or(&0).clone()
     }
     pub fn distribute_shares(&mut self, company_id: u64, agents: &mut Agents) {
         let mut bets = self.bets.iter().collect::<Vec<_>>();
         bets.sort_by(|a, b| b.1.cmp(a.1));
-        for (&agent_id, &number_of_shares) in bets.iter() {
-            if self.number_of_shares < number_of_shares {
+        for (&agent_id, &number_of_lots) in bets.iter() {
+            if self.number_of_lots < number_of_lots {
                 continue;
             }
             agents
                 .holdings
-                .insert(agent_id, company_id, number_of_shares);
-            self.number_of_shares -= number_of_shares;
+                .insert(agent_id, company_id, number_of_lots * self.lot_size);
+            self.number_of_lots -= number_of_lots;
         }
+        self.bets.clear();
+    }
+    pub fn compress_lot_size(&mut self, compress_ratio: f64) -> u64 {
+        let new_lot_size = (self.lot_size as f64 * compress_ratio).round() as u64;
+
+        let refund_difference = self.lot_size - new_lot_size;
+        self.lot_size = new_lot_size;
+        refund_difference
+    }
+    pub fn compress_shares(&mut self, agents: &mut Agents) -> Result<(), SimulationError> {
+        let compress_ratio = self.total_num_of_bets as f64 / self.number_of_lots as f64;
+        if compress_ratio.fract() != 0.0 {
+            return Err(SimulationError::UnDoable);
+        }
+        let refund_difference = self.compress_lot_size(compress_ratio);
+        for (bettor, &number_of_lots) in self.bets.iter() {
+            agents.balances.add(
+                *bettor,
+                (refund_difference * number_of_lots) as f64 * self.strike_price,
+            )?;
+        }
+        Ok(())
+    }
+    pub fn finalize(&mut self, company_id: u64, agents: &mut Agents) {
+        _ = self.compress_shares(agents); // compress if you can
+        self.distribute_shares(company_id, agents);
         self.bets.clear();
     }
 }
@@ -133,16 +185,18 @@ impl Companies {
     pub fn new() -> Self {
         Self::default()
     }
-    pub fn rand(number_of_companies: usize, rng: &mut impl Rng) -> Self {
+    pub fn rand(number_of_companies: usize, current_time: u64, rng: &mut impl Rng) -> Self {
         let mut market_values = Vec::with_capacity(number_of_companies);
         let mut balances = Vec::with_capacity(number_of_companies);
         let mut expected_profits = Vec::with_capacity(number_of_companies);
         let mut news = Vec::with_capacity(number_of_companies);
         let mut lots = Vec::with_capacity(number_of_companies);
+        let mut lot_finalization_times = Vec::with_capacity(number_of_companies);
         for _ in 0..number_of_companies {
             balances.push(rng.gen_range(10_000.0..1_000_000.0));
             market_values.push(MarketValue::rand(rng));
             lots.push(Lots::rand(rng));
+            lot_finalization_times.push(current_time + rng.gen_range(5..10));
 
             let expected_profit = rng.gen_range(100.0..10_000.0);
             expected_profits.push(expected_profit);
@@ -161,6 +215,7 @@ impl Companies {
             expected_profits,
             news,
             lots,
+            lot_finalization_times,
         }
     }
     pub fn load(companies: &[Company]) -> Self {
@@ -170,12 +225,14 @@ impl Companies {
         let mut expected_profits = Vec::with_capacity(num_of_companies);
         let mut news = Vec::with_capacity(num_of_companies);
         let mut lots = Vec::with_capacity(num_of_companies);
+        let mut lot_finalization_times = Vec::with_capacity(num_of_companies);
         for company in companies.iter() {
             market_values.push(company.market_value.clone());
             balances.push(company.balance);
             expected_profits.push(company.expected_profit);
             news.push(company.news);
             lots.push(company.lots.clone());
+            lot_finalization_times.push(company.lot_finalization_time);
         }
         Self {
             num_of_companies: num_of_companies as u64,
@@ -185,6 +242,7 @@ impl Companies {
             expected_profits,
             news,
             lots,
+            lot_finalization_times,
         }
     }
     pub fn load_mut(&mut self, companies: &[Company]) {
@@ -195,6 +253,8 @@ impl Companies {
             self.expected_profits.push(company.expected_profit);
             self.news.push(company.news);
             self.lots.push(company.lots.clone());
+            self.lot_finalization_times
+                .push(company.lot_finalization_time);
         }
     }
     pub fn save(&self) -> Vec<Company> {
@@ -207,6 +267,7 @@ impl Companies {
                 expected_profit: self.expected_profits[id],
                 news: self.news[id],
                 lots: self.lots[id].clone(),
+                lot_finalization_time: self.lot_finalization_times[id],
             });
         }
         companies
@@ -271,5 +332,39 @@ impl Companies {
             *hype = clean_item;
             item = hypeable_companies.pop();
         }
+    }
+    pub fn generate_preferences_from_news(&self, rng: &mut impl Rng) -> Vec<(u64, TradeAction)> {
+        let mut output = Vec::with_capacity(1000);
+        while output.len() != 1000 {
+            for (company_id, &news) in self.news.iter().enumerate() {
+                let probability = news_to_probability(news);
+                if !rng.gen_bool(probability) {
+                    continue;
+                }
+                let action = if news > 0.0 {
+                    TradeAction::Buy
+                } else {
+                    TradeAction::Sell
+                };
+                output.push((company_id as u64, action));
+                break;
+            }
+        }
+        output
+    }
+    pub fn release_shares(&mut self, company_id: u64, number_of_lots: u64, strike_price: f64) {
+        let lots = &mut self.lots[company_id as usize];
+        lots.number_of_lots = number_of_lots;
+        lots.strike_price = strike_price;
+    }
+    pub fn check_lot(&self, company_id: u64) -> bool {
+        // Ya, this is the way it happens in real life, idk why
+        self.lots[company_id as usize].number_of_lots != 0
+    }
+    pub fn check_lots_from_todotransaction(
+        &self,
+        todo_transaction: &TodoTransactions,
+    ) -> Result<(), SimulationError> {
+        todo!()
     }
 }

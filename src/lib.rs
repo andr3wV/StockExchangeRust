@@ -40,6 +40,7 @@ pub enum SimulationError {
     AgentNotFound(u64),
     Unspendable,
     NoData,
+    UnDoable,
 }
 
 pub fn save<T: Serialize>(data: T, file_path: &str) -> Result<(), SerializationError> {

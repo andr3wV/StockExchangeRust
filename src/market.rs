@@ -1,5 +1,5 @@
 use crate::{
-    entities::{agents::Agents, companies::MarketValue},
+    entities::{agents::Agents, companies::Companies, companies::MarketValue},
     max, min,
     trade_house::{FailedOffer, Offer, StockOption, Trade, TradeAction, TradeHouse},
     transaction::{TodoTransactions, Transaction},
@@ -36,10 +36,12 @@ impl Market {
         &mut self,
         rng: &mut impl Rng,
         agents: &mut Agents,
+        companies: &Companies,
         transactions: &mut [TodoTransactions],
     ) -> Result<(), SimulationError> {
         for todo_transaction in transactions.iter() {
-            let Ok(Some(possible_offers)) = self.trade(todo_transaction, agents, 5.0) else {
+            let Ok(Some(possible_offers)) = self.trade(todo_transaction, agents, companies, 5.0)
+            else {
                 continue;
             };
 
@@ -66,9 +68,14 @@ impl Market {
         &mut self,
         todo_transaction: &TodoTransactions,
         agents: &mut Agents,
+        companies: &Companies,
         acceptable_strike_price_deviation: f64,
     ) -> Result<Option<Vec<Offer<Trade>>>, SimulationError> {
         agents.deduct_assets_from_todotransaction(todo_transaction)?;
+
+        // The reason I can't use the todotransactions for this is because we need to check for
+        // lots instead of offers
+        let can_use_company_shares = companies.check_lots_from_todotransaction(todo_transaction)?;
 
         // Check if there is an appropriate trade offer
         let appropriate_trade_offer = self.house.get_appropriate_trade_offer(

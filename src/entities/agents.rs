@@ -309,6 +309,17 @@ impl Agents {
         }
         Ok(())
     }
+    pub fn rand_give_preferences_from_news(
+        &mut self,
+        rng: &mut impl Rng,
+        news_dependent_company_id_probability_distribution: &[(u64, TradeAction)],
+    ) {
+        for agent_id in 0..self.num_of_agents {
+            let (company_id, action) = news_dependent_company_id_probability_distribution
+                [rng.gen_range(0..news_dependent_company_id_probability_distribution.len())];
+            self.preferences.0[agent_id as usize].add(&vec![(company_id, action)]);
+        }
+    }
     pub fn rand_introduce_new_agents(
         &mut self,
         mut rng: impl Rng + Clone,

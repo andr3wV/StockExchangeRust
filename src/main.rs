@@ -38,7 +38,7 @@ fn main() {
     let mut companies = if let Ok(company_data) = company_file {
         Companies::load(company_data.as_slice())
     } else {
-        Companies::rand(NUM_OF_COMPANIES as usize, &mut rng)
+        Companies::rand(NUM_OF_COMPANIES as usize, 0, &mut rng)
     };
 
     let mut agents = if let Ok(agent_data) = agent_file {
@@ -80,12 +80,8 @@ fn main() {
         .unwrap();
     for i in 0..100 {
         agents.try_offers.clear();
-        todo_transactions.clear();
-        expired_trades.clear();
-        expired_options.clear();
         println!("{}", i);
         if i % 5 == 0 {
-            market.tick_failures(&mut expired_trades, &mut expired_options);
             for company_id in companies.iter() {
                 let Some(market_value) = companies.market_values.get_mut(company_id as usize)
                 else {
@@ -93,6 +89,7 @@ fn main() {
                 };
                 market.tick_individual_company(company_id, market_value);
             }
+            market.tick_failures(&mut expired_trades, &mut expired_options);
         }
         if i % 20 == 0 {
             companies.rand_release_news(&mut rng);
@@ -100,6 +97,8 @@ fn main() {
         agents
             .alert_agents(&expired_trades, &expired_options)
             .unwrap();
+        expired_trades.clear();
+        expired_options.clear();
 
         for agent_id in agents.iter() {
             let (company_id, action) = agents
@@ -128,9 +127,18 @@ fn main() {
                 trade: trade.clone(),
             });
         }
-        let Err(e) = market.rand_do_trade(&mut rng, &mut agents, &mut todo_transactions) else {
+        let news_probability_distribution = 
+            &companies.generate_preferences_from_news(&mut rng);
+        agents.rand_give_preferences_from_news(
+            &mut rng,
+            &news_probability_distribution
+        );
+        let Err(e) =
+            market.rand_do_trade(&mut rng, &mut agents, &companies, &mut todo_transactions)
+        else {
             continue;
         };
+        todo_transactions.clear();
         match e {
             SimulationError::AgentNotFound(agent_id) => {
                 log!(warn "Agent not found: {}", agent_id);
@@ -138,7 +146,7 @@ fn main() {
             SimulationError::NoData => {
                 log!(warn "No data");
             }
-            SimulationError::Unspendable => {
+            SimulationError::Unspendable | SimulationError::UnDoable => {
                 continue;
             }
         }
