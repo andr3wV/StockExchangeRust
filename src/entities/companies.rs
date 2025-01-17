@@ -1,11 +1,9 @@
+use super::agents::Agents;
+use crate::SimulationError;
 use rand::Rng;
 use rand_distr::{Distribution, Normal};
 use serde::{Deserialize, Serialize};
 use std::collections::HashMap;
-
-use crate::SimulationError;
-
-use super::agents::Agents;
 
 #[derive(Serialize, Deserialize, Debug, Clone, Default)]
 pub struct MarketValue {

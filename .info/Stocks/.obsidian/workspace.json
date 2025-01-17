@@ -4,11 +4,11 @@
     "type": "split",
     "children": [
       {
-        "id": "ba1f3a9e5bbe324f",
+        "id": "f83eb1fb8fc0cb9e",
         "type": "tabs",
         "children": [
           {
-            "id": "a5ca455c129579b9",
+            "id": "183d422feb7900c9",
             "type": "leaf",
             "state": {
               "type": "markdown",
@@ -20,23 +20,8 @@
               "icon": "lucide-file",
               "title": "Company Properties & Budget"
             }
-          },
-          {
-            "id": "1d7b91864d377150",
-            "type": "leaf",
-            "state": {
-              "type": "markdown",
-              "state": {
-                "file": "IPOs and Loots.md",
-                "mode": "source",
-                "source": false
-              },
-              "icon": "lucide-file",
-              "title": "IPOs and Loots"
-            }
           }
-        ],
-        "currentTab": 1
+        ]
       }
     ],
     "direction": "vertical"
@@ -177,12 +162,12 @@
       "command-palette:Open command palette": false
     }
   },
-  "active": "1d7b91864d377150",
+  "active": "183d422feb7900c9",
   "lastOpenFiles": [
     "Company Properties & Budget.md",
+    "Simulation Running Data Storing.md",
     "IPOs and Loots.md",
     "How preference is stored and calculated.md",
-    "Simulation Running Data Storing.md",
     "Welcome.md"
   ]
 }
