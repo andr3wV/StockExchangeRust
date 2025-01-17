@@ -13,20 +13,16 @@
         overlays = [ (import rust-overlay) ];
         pkgs = import nixpkgs {
           inherit system overlays;
-        }
-        ideSetup = import ~/setup.nix;
+        };
       in
       {
         devShells.default = with pkgs; mkShell {
-          buildInputs = ideSetup.buildInputs ++ [
+          buildInputs = [
             rust-bin.nightly.latest.default
             clippy
             linuxPackages_latest.perf # Profiler
           ];
-          shellHook = ''
-          ${ideSetup.shellHook}
-          '';
         };
-      };
+      }
     );
 }
