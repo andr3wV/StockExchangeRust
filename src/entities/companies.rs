@@ -1,4 +1,5 @@
 use crate::{
+    log, logger::{Log},
     entities::agents::Agents, trade_house::TradeAction, transaction::TodoTransactions,
     SimulationError,
 };
@@ -85,6 +86,16 @@ impl Lots {
             total_num_of_bets: 0,
         }
     }
+    pub fn is_blank(&self) -> bool {
+        self.strike_price == 0.0 || self.lot_size == 0 || self.number_of_lots == 0
+    }
+    pub fn close(&mut self) {
+        self.strike_price = 0.0;
+        self.number_of_lots = 0;
+        self.lot_size = 0;
+        self.total_num_of_bets = 0;
+        self.bets.clear();
+    }
     pub fn rand(rng: &mut impl Rng) -> Self {
         Self {
             strike_price: rng.gen_range(10.0..1_000.0),
@@ -95,12 +106,32 @@ impl Lots {
                                   // or be uninterested
         }
     }
-    pub fn add_bet(
+    pub fn rng_reset(&mut self, rng: &mut impl Rng, appox_price: f64) {
+        self.bets.clear();
+        self.strike_price = appox_price + rng.gen_range(-1_000.0..1_000.0);
+        self.number_of_lots = rng.gen_range(1..1_000) * 100;
+        self.lot_size = rng.gen_range(1..10) * 10;
+        self.total_num_of_bets = 0;
+    }
+    pub fn rng_reset_exact_price(&mut self, rng: &mut impl Rng, exact_price: f64) {
+        self.bets.clear();
+        self.strike_price = exact_price;
+        self.number_of_lots = rng.gen_range(1..1_000) * 100;
+        self.lot_size = rng.gen_range(1..10) * 10;
+        self.total_num_of_bets = 0;
+    }
+    pub fn add_bet_and_update_agent(
         &mut self,
         agents: &mut Agents,
         agent_id: u64,
         number_of_lots: u64,
     ) -> Result<(), SimulationError> {
+        if self.is_blank() {
+            return Ok(());
+        }
+        if self.lot_size == 0 {
+            return Ok(());
+        }
         agents.balances.add(
             agent_id,
             -(self.strike_price * (self.lot_size * number_of_lots) as f64),
@@ -112,12 +143,35 @@ impl Lots {
         self.total_num_of_bets += number_of_lots;
         Ok(())
     }
-    pub fn remove_bet(
+    pub fn add_bet(
+        &mut self,
+        agent_id: u64,
+        number_of_lots: u64,
+    ) {
+        if self.is_blank() {
+            return;
+        }
+        if self.lot_size == 0 {
+            return;
+        }
+        self.bets
+            .entry(agent_id)
+            .and_modify(|bet| *bet += number_of_lots)
+            .or_insert(number_of_lots);
+        self.total_num_of_bets += number_of_lots;
+    }
+    pub fn fits_agent_price(&self, strike_price: f64, acceptable_deviation: f64) -> bool {
+        (self.strike_price - strike_price).abs() < acceptable_deviation
+    }
+    pub fn remove_bet_and_update_agent(
         &mut self,
         agents: &mut Agents,
         agent_id: u64,
         number_of_lots: u64,
     ) -> Result<(), SimulationError> {
+        if self.is_blank() {
+            return Ok(());
+        }
         let Some(bet) = self.bets.get_mut(&agent_id) else {
             return Err(SimulationError::AgentNotFound(agent_id));
         };
@@ -136,13 +190,33 @@ impl Lots {
         self.total_num_of_bets -= number_of_lots;
         Ok(())
     }
+    pub fn remove_bet(
+        &mut self,
+        bet: &mut u64,
+        agent_id: u64,
+        number_of_lots: u64,
+    ) {
+        if self.is_blank() {
+            return;
+        }
+        *bet -= number_of_lots;
+        if *bet == 0 {
+            self.bets.remove(&agent_id);
+        }
+        self.total_num_of_bets -= number_of_lots;
+    }
     pub fn get_bet(&self, agent_id: u64) -> u64 {
         self.bets.get(&agent_id).unwrap_or(&0).clone()
     }
     pub fn distribute_shares(&mut self, company_id: u64, agents: &mut Agents) {
+        if self.is_blank() {
+            return;
+        }
         let mut bets = self.bets.iter().collect::<Vec<_>>();
         bets.sort_by(|a, b| b.1.cmp(a.1));
+        log!(info "Lot distribution: company_id: {} strike_price: {}", company_id,  self.strike_price);
         for (&agent_id, &number_of_lots) in bets.iter() {
+            print!("({}[{}]), ", agent_id, number_of_lots * self.lot_size);
             if self.number_of_lots < number_of_lots {
                 continue;
             }
@@ -151,6 +225,7 @@ impl Lots {
                 .insert(agent_id, company_id, number_of_lots * self.lot_size);
             self.number_of_lots -= number_of_lots;
         }
+        println!();
         self.bets.clear();
     }
     pub fn compress_lot_size(&mut self, compress_ratio: f64) -> u64 {
@@ -161,6 +236,9 @@ impl Lots {
         refund_difference
     }
     pub fn compress_shares(&mut self, agents: &mut Agents) -> Result<(), SimulationError> {
+        if self.is_blank() {
+            return Ok(());
+        }
         let compress_ratio = self.total_num_of_bets as f64 / self.number_of_lots as f64;
         if compress_ratio.fract() != 0.0 {
             return Err(SimulationError::UnDoable);
@@ -172,12 +250,12 @@ impl Lots {
                 (refund_difference * number_of_lots) as f64 * self.strike_price,
             )?;
         }
+        self.strike_price *= compress_ratio;
         Ok(())
     }
     pub fn finalize(&mut self, company_id: u64, agents: &mut Agents) {
         _ = self.compress_shares(agents); // compress if you can
         self.distribute_shares(company_id, agents);
-        self.bets.clear();
     }
 }
 
@@ -272,11 +350,10 @@ impl Companies {
         }
         companies
     }
-    pub fn get_current_price(&self, company_id: u64) -> f64 {
+    pub fn get_current_price(&self, company_id: u64) -> Option<f64> {
         self.market_values
             .get(company_id as usize)
             .map(|market_value| market_value.current_price)
-            .unwrap_or(0.0)
     }
     pub fn iter(&self) -> std::ops::Range<u64> {
         0..self.num_of_companies
@@ -284,9 +361,18 @@ impl Companies {
     pub fn rand_company_id(&self, rng: &mut impl Rng) -> u64 {
         rng.gen_range(0..self.num_of_companies)
     }
-    pub fn rand_release_news(&mut self, rng: &mut impl Rng) {
+    pub fn rand_release_news(&mut self, agents: &mut Agents, rng: &mut impl Rng) {
         let mut hypeable_companies = Vec::new();
         for id in 0..self.num_of_companies {
+            // for now, we distribute shares after news update
+            self.lots[id as usize].finalize(id, agents);
+            if rng.gen_ratio(1, 10) {
+                // 10% chance of re-releasing shares
+                let failable_value = rng.gen_range(10.0..2_000.0);
+                let current_price = self.get_current_price(id).unwrap_or(failable_value);
+                self.lots[id as usize].rng_reset_exact_price(rng, current_price);
+            }
+
             let expected_profit = self.expected_profits[id as usize];
             let Ok(normal) = Normal::new(0.0, 100.0 / expected_profit) else {
                 // If the normal distribution fails, we just add the expected profit
@@ -364,7 +450,17 @@ impl Companies {
     pub fn check_lots_from_todotransaction(
         &self,
         todo_transaction: &TodoTransactions,
-    ) -> Result<(), SimulationError> {
-        todo!()
+    ) -> bool {
+        self.check_lot(todo_transaction.company_id)
+    }
+    pub fn add_bet_from_todotransaction(&mut self, todo_transaction: &TodoTransactions) {
+        let lot = &mut self.lots[todo_transaction.company_id as usize];
+        if lot.lot_size == 0 {
+            return;
+        }
+        lot.add_bet(
+            todo_transaction.agent_id,
+            (todo_transaction.trade.number_of_shares as f64 / lot.lot_size as f64).round() as u64
+        );
     }
 }

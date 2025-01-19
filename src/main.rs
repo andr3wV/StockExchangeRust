@@ -65,14 +65,13 @@ fn main() {
         agents
             .rand_give_preferences(rng1, companies.num_of_companies)
             .unwrap();
-        agents.rand_give_assets(&mut rng, &companies).unwrap();
+        // agents.rand_give_assets(&mut rng, &companies).unwrap();
     }
 
     let mut expired_trades: HashMap<u64, Vec<FailedOffer<Trade>>> = HashMap::new();
     let mut expired_options: HashMap<u64, Vec<FailedOffer<StockOption>>> = HashMap::new();
 
     let mut todo_transactions: Vec<TodoTransactions> = Vec::new();
-    let mut todo_company_transactions: Vec<CompanyTransaction> = Vec::new();
 
     let trade = Trade::new(10);
     agents
@@ -92,7 +91,7 @@ fn main() {
             market.tick_failures(&mut expired_trades, &mut expired_options);
         }
         if i % 20 == 0 {
-            companies.rand_release_news(&mut rng);
+            companies.rand_release_news(&mut agents, &mut rng);
         }
         agents
             .alert_agents(&expired_trades, &expired_options)
@@ -101,23 +100,23 @@ fn main() {
         expired_options.clear();
 
         for agent_id in agents.iter() {
-            let (company_id, action) = agents
+            let (company_id, mut action) = agents
                 .preferences
                 .get_preferred_random(agent_id, &mut rng)
                 .unwrap();
+
+            // small portion of people who sell low and buy high, because .... IDK WHY
+            if rng.gen_ratio(5, 100) {
+                action = action.complement();
+            }
+
+            let failable_value = rng.gen_range(10.0..2_000.0);
+            let current_price = companies.get_current_price(company_id).unwrap_or(failable_value);
+            companies.market_values[company_id as usize].current_price = current_price;
             let strike_price = max(
                 MIN_STRIKE_PRICE,
-                companies.get_current_price(company_id) + rng.gen_range(-10.0..10.0),
+                current_price + rng.gen_range(-10.0..10.0),
             );
-
-            if action == TradeAction::Buy {
-                todo_company_transactions.push(CompanyTransaction::new(
-                    agent_id,
-                    company_id,
-                    trade.number_of_shares,
-                    strike_price,
-                ));
-            }
 
             todo_transactions.push(TodoTransactions {
                 agent_id,
@@ -134,8 +133,9 @@ fn main() {
             &news_probability_distribution
         );
         let Err(e) =
-            market.rand_do_trade(&mut rng, &mut agents, &companies, &mut todo_transactions)
+            market.rand_do_trade(&mut rng, &mut agents, &mut companies, &mut todo_transactions)
         else {
+            todo_transactions.clear();
             continue;
         };
         todo_transactions.clear();

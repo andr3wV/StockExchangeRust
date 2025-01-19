@@ -60,19 +60,3 @@ impl Transaction {
     }
 }
 
-impl CompanyTransaction {
-    pub fn new(
-        buyer_agent_id: u64,
-        seller_company_id: u64,
-        number_of_shares: u64,
-        strike_price: f64,
-    ) -> Self {
-        log!(info "CompanyTransaction: buyer_agent_id: {}, seller_company_id: {}, number_of_shares: {}, strike_price: {}", buyer_agent_id, seller_company_id, number_of_shares, strike_price);
-        Self {
-            buyer_agent_id,
-            seller_company_id,
-            number_of_shares,
-            strike_price,
-        }
-    }
-}

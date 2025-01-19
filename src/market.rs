@@ -36,11 +36,11 @@ impl Market {
         &mut self,
         rng: &mut impl Rng,
         agents: &mut Agents,
-        companies: &Companies,
+        companies: &mut Companies,
         transactions: &mut [TodoTransactions],
     ) -> Result<(), SimulationError> {
         for todo_transaction in transactions.iter() {
-            let Ok(Some(possible_offers)) = self.trade(todo_transaction, agents, companies, 5.0)
+            let Ok(Some(possible_offers)) = self.trade(rng.gen_ratio(6, 10), todo_transaction, agents, companies, 5.0)
             else {
                 continue;
             };
@@ -66,16 +66,22 @@ impl Market {
     }
     pub fn trade(
         &mut self,
+        willing_to_accept_company_shares_if_they_are_present: bool,
         todo_transaction: &TodoTransactions,
         agents: &mut Agents,
-        companies: &Companies,
+        companies: &mut Companies,
         acceptable_strike_price_deviation: f64,
     ) -> Result<Option<Vec<Offer<Trade>>>, SimulationError> {
         agents.deduct_assets_from_todotransaction(todo_transaction)?;
 
-        // The reason I can't use the todotransactions for this is because we need to check for
-        // lots instead of offers
-        let can_use_company_shares = companies.check_lots_from_todotransaction(todo_transaction)?;
+        //
+        if
+            companies.check_lots_from_todotransaction(todo_transaction) &&
+            willing_to_accept_company_shares_if_they_are_present
+        {
+            companies.add_bet_from_todotransaction(todo_transaction);
+            return Ok(None);
+        }
 
         // Check if there is an appropriate trade offer
         let appropriate_trade_offer = self.house.get_appropriate_trade_offer(
