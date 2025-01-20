@@ -9,8 +9,8 @@ use stocks::{
     logger::Log,
     market::Market,
     max, save,
-    trade_house::{FailedOffer, StockOption, Trade, TradeAction},
-    transaction::{CompanyTransaction, TodoTransactions},
+    trade_house::{FailedOffer, StockOption, Trade},
+    transaction::TodoTransaction,
     SimulationError, AGENTS_DATA_FILENAME, COMPANIES_DATA_FILENAME, MIN_STRIKE_PRICE,
     NUM_OF_AGENTS, NUM_OF_COMPANIES,
 };
@@ -71,7 +71,7 @@ fn main() {
     let mut expired_trades: HashMap<u64, Vec<FailedOffer<Trade>>> = HashMap::new();
     let mut expired_options: HashMap<u64, Vec<FailedOffer<StockOption>>> = HashMap::new();
 
-    let mut todo_transactions: Vec<TodoTransactions> = Vec::new();
+    let mut todo_transactions: Vec<TodoTransaction> = Vec::new();
 
     let trade = Trade::new(10);
     agents
@@ -111,14 +111,13 @@ fn main() {
             }
 
             let failable_value = rng.gen_range(10.0..2_000.0);
-            let current_price = companies.get_current_price(company_id).unwrap_or(failable_value);
+            let current_price = companies
+                .get_current_price(company_id)
+                .unwrap_or(failable_value);
             companies.market_values[company_id as usize].current_price = current_price;
-            let strike_price = max(
-                MIN_STRIKE_PRICE,
-                current_price + rng.gen_range(-10.0..10.0),
-            );
+            let strike_price = max(MIN_STRIKE_PRICE, current_price + rng.gen_range(-10.0..10.0));
 
-            todo_transactions.push(TodoTransactions {
+            todo_transactions.push(TodoTransaction {
                 agent_id,
                 company_id,
                 strike_price,
@@ -126,15 +125,14 @@ fn main() {
                 trade: trade.clone(),
             });
         }
-        let news_probability_distribution = 
-            &companies.generate_preferences_from_news(&mut rng);
-        agents.rand_give_preferences_from_news(
+        let news_probability_distribution = &companies.generate_preferences_from_news(&mut rng);
+        agents.rand_give_preferences_from_news(&mut rng, &news_probability_distribution);
+        let Err(e) = market.rand_do_trade(
             &mut rng,
-            &news_probability_distribution
-        );
-        let Err(e) =
-            market.rand_do_trade(&mut rng, &mut agents, &mut companies, &mut todo_transactions)
-        else {
+            &mut agents,
+            &mut companies,
+            &mut todo_transactions,
+        ) else {
             todo_transactions.clear();
             continue;
         };

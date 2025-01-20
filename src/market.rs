@@ -2,7 +2,7 @@ use crate::{
     entities::{agents::Agents, companies::Companies, companies::MarketValue},
     max, min,
     trade_house::{FailedOffer, Offer, StockOption, Trade, TradeAction, TradeHouse},
-    transaction::{TodoTransactions, Transaction},
+    transaction::{TodoTransaction, Transaction},
     SimulationError,
 };
 use rand::Rng;
@@ -37,11 +37,16 @@ impl Market {
         rng: &mut impl Rng,
         agents: &mut Agents,
         companies: &mut Companies,
-        transactions: &mut [TodoTransactions],
+        transactions: &mut [TodoTransaction],
     ) -> Result<(), SimulationError> {
         for todo_transaction in transactions.iter() {
-            let Ok(Some(possible_offers)) = self.trade(rng.gen_ratio(6, 10), todo_transaction, agents, companies, 5.0)
-            else {
+            let Ok(Some(possible_offers)) = self.trade(
+                rng.gen_ratio(6, 10),
+                todo_transaction,
+                agents,
+                companies,
+                5.0,
+            ) else {
                 continue;
             };
 
@@ -67,7 +72,7 @@ impl Market {
     pub fn trade(
         &mut self,
         willing_to_accept_company_shares_if_they_are_present: bool,
-        todo_transaction: &TodoTransactions,
+        todo_transaction: &TodoTransaction,
         agents: &mut Agents,
         companies: &mut Companies,
         acceptable_strike_price_deviation: f64,
@@ -75,9 +80,8 @@ impl Market {
         agents.deduct_assets_from_todotransaction(todo_transaction)?;
 
         //
-        if
-            companies.check_lots_from_todotransaction(todo_transaction) &&
-            willing_to_accept_company_shares_if_they_are_present
+        if companies.check_lots_from_todotransaction(todo_transaction)
+            && willing_to_accept_company_shares_if_they_are_present
         {
             companies.add_bet_from_todotransaction(todo_transaction);
             return Ok(None);
@@ -137,7 +141,7 @@ impl Market {
     pub fn convert_trade_offer_and_todo_transaction_to_transaction(
         &mut self,
         offer: &Offer<Trade>,
-        todo_transaction: &TodoTransactions,
+        todo_transaction: &TodoTransaction,
     ) -> Transaction {
         let (buyer_id, seller_id) = match todo_transaction.action {
             TradeAction::Buy => (todo_transaction.agent_id, offer.offerer_id),

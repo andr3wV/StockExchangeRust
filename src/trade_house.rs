@@ -1,8 +1,7 @@
-use std::collections::HashMap;
-
-use crate::{transaction::TodoTransactions, OFFER_LIFETIME};
+use crate::{transaction::TodoTransaction, OFFER_LIFETIME};
 use rand::random;
 use serde::{Deserialize, Serialize};
+use std::collections::HashMap;
 
 /// Basically stores all the requested trades that weren't immediately resolved
 #[derive(Serialize, Deserialize, Debug, Default)]
@@ -113,7 +112,7 @@ impl TradeHouse {
         .push(Offer::new(offerer_id, strike_price, trade));
     }
 
-    pub fn add_trade_offer_from_todo_transaction(&mut self, todo_transaction: &TodoTransactions) {
+    pub fn add_trade_offer_from_todo_transaction(&mut self, todo_transaction: &TodoTransaction) {
         self.add_trade_offer(
             todo_transaction.agent_id,
             todo_transaction.company_id,

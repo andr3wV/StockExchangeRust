@@ -33,7 +33,7 @@ pub struct CompanyTransaction {
     pub strike_price: f64,
 }
 
-pub struct TodoTransactions {
+pub struct TodoTransaction {
     pub agent_id: u64,
     pub company_id: u64,
     pub strike_price: f64,
@@ -59,4 +59,3 @@ impl Transaction {
         }
     }
 }
-

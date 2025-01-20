@@ -1,7 +1,6 @@
 use crate::{
-    log, logger::{Log},
-    entities::agents::Agents, trade_house::TradeAction, transaction::TodoTransactions,
-    SimulationError,
+    entities::agents::Agents, log, logger::Log, trade_house::TradeAction,
+    transaction::TodoTransaction, SimulationError,
 };
 use rand::Rng;
 use rand_distr::{Distribution, Normal};
@@ -76,6 +75,26 @@ fn news_to_probability(news: f64) -> f64 {
     1.0 - (-news * news).exp()
 }
 
+impl Company {
+    pub fn new(
+        id: u64,
+        balance: f64,
+        expected_profit: f64,
+        news: f64,
+        lots: (f64, u64, u64),
+    ) -> Self {
+        Self {
+            id,
+            market_value: MarketValue::default(),
+            balance,
+            expected_profit,
+            news,
+            lots: Lots::new(lots.0, lots.1, lots.2),
+            lot_finalization_time: 0,
+        }
+    }
+}
+
 impl Lots {
     pub fn new(strike_price: f64, number_of_lots: u64, lot_size: u64) -> Self {
         Self {
@@ -143,11 +162,7 @@ impl Lots {
         self.total_num_of_bets += number_of_lots;
         Ok(())
     }
-    pub fn add_bet(
-        &mut self,
-        agent_id: u64,
-        number_of_lots: u64,
-    ) {
+    pub fn add_bet(&mut self, agent_id: u64, number_of_lots: u64) {
         if self.is_blank() {
             return;
         }
@@ -190,12 +205,7 @@ impl Lots {
         self.total_num_of_bets -= number_of_lots;
         Ok(())
     }
-    pub fn remove_bet(
-        &mut self,
-        bet: &mut u64,
-        agent_id: u64,
-        number_of_lots: u64,
-    ) {
+    pub fn remove_bet(&mut self, bet: &mut u64, agent_id: u64, number_of_lots: u64) {
         if self.is_blank() {
             return;
         }
@@ -447,20 +457,17 @@ impl Companies {
         // Ya, this is the way it happens in real life, idk why
         self.lots[company_id as usize].number_of_lots != 0
     }
-    pub fn check_lots_from_todotransaction(
-        &self,
-        todo_transaction: &TodoTransactions,
-    ) -> bool {
+    pub fn check_lots_from_todotransaction(&self, todo_transaction: &TodoTransaction) -> bool {
         self.check_lot(todo_transaction.company_id)
     }
-    pub fn add_bet_from_todotransaction(&mut self, todo_transaction: &TodoTransactions) {
+    pub fn add_bet_from_todotransaction(&mut self, todo_transaction: &TodoTransaction) {
         let lot = &mut self.lots[todo_transaction.company_id as usize];
         if lot.lot_size == 0 {
             return;
         }
         lot.add_bet(
             todo_transaction.agent_id,
-            (todo_transaction.trade.number_of_shares as f64 / lot.lot_size as f64).round() as u64
+            (todo_transaction.trade.number_of_shares as f64 / lot.lot_size as f64).round() as u64,
         );
     }
 }

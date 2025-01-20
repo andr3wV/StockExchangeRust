@@ -1,7 +1,7 @@
 use crate::{
     entities::{companies::Companies, Balances},
     trade_house::{FailedOffer, StockOption, Trade, TradeAction},
-    transaction::{TodoTransactions, Transaction},
+    transaction::{TodoTransaction, Transaction},
     SimulationError, NUM_OF_AGENTS, TIMELINE_SIZE_LIMIT,
 };
 use rand::Rng;
@@ -53,6 +53,25 @@ pub struct Agent {
     pub balance: f64,
     pub holding: AgentHoldings,
     pub preferences: AgentPreferences,
+}
+
+impl Agent {
+    pub fn new(
+        id: u64,
+        balance: f64,
+        holdings: &[(u64, u64)],
+        preferences: &[(u64, (u64, TradeAction))],
+    ) -> Self {
+        Self {
+            id,
+            balance,
+            holding: AgentHoldings(holdings.iter().cloned().collect()),
+            preferences: AgentPreferences(Timeline {
+                data: preferences.iter().map(|(_, a)| *a).collect(),
+                target_index: 0,
+            }),
+        }
+    }
 }
 
 impl Holdings {
@@ -387,7 +406,7 @@ impl Agents {
     pub fn try_failed_offers(
         &self,
         rng: &mut impl Rng,
-        transactions: &mut Vec<TodoTransactions>,
+        transactions: &mut Vec<TodoTransaction>,
         attempting_trade: &Trade,
     ) -> Result<(), SimulationError> {
         if self.try_offers.is_empty() {
@@ -412,7 +431,7 @@ impl Agents {
             if !can_transact {
                 continue;
             }
-            transactions.push(TodoTransactions {
+            transactions.push(TodoTransaction {
                 agent_id: get_first(*id),
                 company_id: get_second(*id),
                 strike_price: price,
@@ -520,7 +539,7 @@ impl Agents {
     }
     pub fn deduct_assets_from_todotransaction(
         &mut self,
-        todo_transaction: &TodoTransactions,
+        todo_transaction: &TodoTransaction,
     ) -> Result<(), SimulationError> {
         if todo_transaction.action == TradeAction::Sell {
             self.holdings.pop(
