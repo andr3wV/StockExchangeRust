@@ -542,7 +542,7 @@ impl Agents {
     ) -> Result<(), SimulationError> {
         // seller's holdings and buyer's money are resolved at the time of offering
         self.holdings
-            .pop_from_txn(transaction.buyer_id, transaction)?;
+            .push_from_txn(transaction.buyer_id, transaction);
         self.balances.add(
             transaction.seller_id,
             transaction.strike_price * (transaction.number_of_shares as f64),
