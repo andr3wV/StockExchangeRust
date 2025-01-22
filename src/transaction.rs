@@ -33,6 +33,7 @@ pub struct CompanyTransaction {
     pub strike_price: f64,
 }
 
+#[derive(Debug)]
 pub struct TodoTransaction {
     pub agent_id: u64,
     pub company_id: u64,

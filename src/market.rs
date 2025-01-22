@@ -166,7 +166,7 @@ impl Market {
                 todo_transaction.company_id,
                 offer.strike_price,
                 Trade::new(offer.data.number_of_shares - todo_transaction.trade.number_of_shares),
-                TradeAction::Sell,
+                todo_transaction.action.complement(),
             );
             return Transaction::new(
                 buyer_id,

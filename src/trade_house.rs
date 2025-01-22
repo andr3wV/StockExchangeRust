@@ -47,6 +47,7 @@ impl Trade {
     }
 }
 
+#[derive(Debug)]
 pub struct FailedOffer<T: Clone + Default>(pub Offer<T>, pub TradeAction);
 
 /// A specific option offer

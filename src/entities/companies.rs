@@ -431,20 +431,21 @@ impl Companies {
     }
     pub fn generate_preferences_from_news(&self, rng: &mut impl Rng) -> Vec<(u64, TradeAction)> {
         let mut output = Vec::with_capacity(1000);
+        let mut news_iter = self.news.iter().enumerate().cycle();
         while output.len() != 1000 {
-            for (company_id, &news) in self.news.iter().enumerate() {
-                let probability = news_to_probability(news);
-                if !rng.gen_bool(probability) {
-                    continue;
-                }
-                let action = if news > 0.0 {
-                    TradeAction::Buy
-                } else {
-                    TradeAction::Sell
-                };
-                output.push((company_id as u64, action));
+            let Some((company_id, &news)) = news_iter.next() else {
                 break;
+            };
+            let probability = news_to_probability(news);
+            if !rng.gen_bool(probability) {
+                continue;
             }
+            let action = if news > 0.0 {
+                TradeAction::Buy
+            } else {
+                TradeAction::Sell
+            };
+            output.push((company_id as u64, action));
         }
         output
     }

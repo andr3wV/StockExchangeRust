@@ -54,18 +54,11 @@ fn main() {
 
     let mut market = Market::new();
 
-    // CURRENT SETUP:
-    // 1. The market will ticked 100 times, and each time every agent will do a random trade
-    // 2. The trade will be either buy or sell, and the company will be random
-    // 3. The strike price will be 100.0 +- 10.0, and the acceptable strike price deviation will be 5.0
-    // 4. Give random agents some shares to start the buying and selling process IF the agents data file is not found
-
     if flag_give_random_stocks_to_random_agents {
         let rng1 = thread_rng();
         agents
             .rand_give_preferences(rng1, companies.num_of_companies)
             .unwrap();
-        // agents.rand_give_assets(&mut rng, &companies).unwrap();
     }
 
     let mut expired_trades: HashMap<u64, Vec<FailedOffer<Trade>>> = HashMap::new();
