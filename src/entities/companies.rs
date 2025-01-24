@@ -163,7 +163,7 @@ impl Lots {
         Ok(())
     }
     pub fn add_bet(&mut self, agent_id: u64, number_of_lots: u64) {
-        if self.is_blank() {
+        if self.is_blank() || number_of_lots == 0 {
             return;
         }
         if self.lot_size == 0 {
@@ -184,7 +184,7 @@ impl Lots {
         agent_id: u64,
         number_of_lots: u64,
     ) -> Result<(), SimulationError> {
-        if self.is_blank() {
+        if self.is_blank() || number_of_lots == 0 {
             return Ok(());
         }
         let Some(bet) = self.bets.get_mut(&agent_id) else {
@@ -226,13 +226,14 @@ impl Lots {
         bets.sort_by(|a, b| b.1.cmp(a.1));
         log!(info "Lot distribution: company_id: {} strike_price: {}", company_id,  self.strike_price);
         for (&agent_id, &number_of_lots) in bets.iter() {
-            print!("({}[{}]), ", agent_id, number_of_lots * self.lot_size);
+            let number_of_shares = number_of_lots * self.lot_size;
+            print!("({}[{}]), ", agent_id, number_of_shares);
             if self.number_of_lots < number_of_lots {
                 continue;
             }
             agents
                 .holdings
-                .insert(agent_id, company_id, number_of_lots * self.lot_size);
+                .insert(agent_id, company_id, number_of_shares);
             self.number_of_lots -= number_of_lots;
         }
         println!();

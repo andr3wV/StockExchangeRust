@@ -1,4 +1,5 @@
 use rand::{thread_rng, Rng};
+use rand_distr::{Normal, Distribution};
 use std::collections::HashMap;
 use stocks::{
     entities::{
@@ -15,6 +16,19 @@ use stocks::{
     NUM_OF_AGENTS, NUM_OF_COMPANIES,
 };
 
+fn spend_function(x: f64) -> f64 {
+    // went off feeling
+    0.99 * (1.0 - (-0.01 * x * x).exp()) + 0.01
+}
+
+fn rand_spend_portion_wealth(rng: &mut impl Rng) -> f64 {
+    let Ok(normal) = Normal::new(0.0, 1.0) else {
+        // If the normal distribution fails, fuck it then
+        return 0.01;
+    };
+    spend_function(normal.sample(rng))
+}
+
 fn main() {
     let mut rng = thread_rng();
     log!(info "Loading local file data");
@@ -23,16 +37,20 @@ fn main() {
 
     let mut flag_give_random_stocks_to_random_agents = false;
 
-    if agent_file.is_ok() {
-        log!(info "Loaded agents");
-    } else {
-        log!(warn "Agents file not found");
+    if let Err(ref e) = agent_file {
+        log!(warn "Agents file not found\n{:?}", e);
         flag_give_random_stocks_to_random_agents = true;
-    }
-    if company_file.is_ok() {
-        log!(info "Loaded companies");
     } else {
-        log!(warn "Company file not found");
+        log!(info "Loaded agents");
+    }
+    if let Err(ref e) = company_file {
+        log!(warn "Company file not found\n{:?}", e);
+    } else {
+        log!(info "Loaded companies");
+    }
+
+    if company_file.is_ok() {
+    } else {
     }
 
     let mut companies = if let Ok(company_data) = company_file {
@@ -109,13 +127,19 @@ fn main() {
                 .unwrap_or(failable_value);
             companies.market_values[company_id as usize].current_price = current_price;
             let strike_price = max(MIN_STRIKE_PRICE, current_price + rng.gen_range(-10.0..10.0));
+            let want_to_spend = agents.balances.get(agent_id).unwrap() * rand_spend_portion_wealth(&mut rng);
+            let rough_amount_of_stocks = (want_to_spend / strike_price).floor() as u64;
+            if rough_amount_of_stocks == 0 {
+                // bruh, just don't trade anything
+                continue;
+            }
 
             todo_transactions.push(TodoTransaction {
                 agent_id,
                 company_id,
                 strike_price,
                 action,
-                trade: trade.clone(),
+                trade: Trade::new(rough_amount_of_stocks),
             });
         }
         let news_probability_distribution = &companies.generate_preferences_from_news(&mut rng);

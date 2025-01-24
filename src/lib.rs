@@ -1,6 +1,6 @@
 use std::{
     fs::File,
-    io::{Read, Write},
+    io::{BufReader, BufWriter},
 };
 
 use serde::{de::DeserializeOwned, Serialize};
@@ -11,11 +11,11 @@ pub mod market;
 pub mod trade_house;
 pub mod transaction;
 
-pub static NUM_OF_AGENTS: u64 = 1000;
+pub static NUM_OF_AGENTS: u64 = 10_000;
 pub static NUM_OF_COMPANIES: u64 = 100;
 
-pub static AGENTS_DATA_FILENAME: &str = "data/agents.yaml";
-pub static COMPANIES_DATA_FILENAME: &str = "data/companies.yaml";
+pub static AGENTS_DATA_FILENAME: &str = "data/agents.bin";
+pub static COMPANIES_DATA_FILENAME: &str = "data/companies.bin";
 
 pub static MIN_STRIKE_PRICE: f64 = 5.0;
 pub static OFFER_LIFETIME: u64 = 10;
@@ -24,7 +24,7 @@ pub static TIMELINE_SIZE_LIMIT: usize = 1000;
 #[derive(Debug)]
 pub enum SerializationError {
     FailedToCreateFile,
-    FailedToSerializeData,
+    FailedToSerialize,
     FailedToWrite,
 }
 
@@ -44,27 +44,22 @@ pub enum SimulationError {
 }
 
 pub fn save<T: Serialize>(data: T, file_path: &str) -> Result<(), SerializationError> {
-    let Ok(mut file) = File::create(file_path) else {
+    let Ok(file) = File::create(file_path) else {
         return Err(SerializationError::FailedToCreateFile);
     };
-    let Ok(str_data) = serde_yaml::to_string(&data) else {
-        return Err(SerializationError::FailedToSerializeData);
+    let writer = BufWriter::new(file);
+    let Ok(data) = bincode::serialize_into(writer, &data) else {
+        return Err(SerializationError::FailedToSerialize);
     };
-    if file.write_all(str_data.as_bytes()).is_err() {
-        return Err(SerializationError::FailedToWrite);
-    }
-    Ok(())
+    Ok(data)
 }
 
 pub fn load<T: DeserializeOwned>(file_path: &str) -> Result<T, DeserializationError> {
-    let Ok(mut file) = File::open(file_path) else {
+    let Ok(file) = File::open(file_path) else {
         return Err(DeserializationError::FileNotFound);
     };
-    let mut str_data = String::new();
-    if file.read_to_string(&mut str_data).is_err() {
-        return Err(DeserializationError::FailedToReadFile);
-    }
-    let Ok(data) = serde_yaml::from_str(&str_data) else {
+    let mut reader = BufReader::new(file);
+    let Ok(data) = bincode::deserialize_from(&mut reader) else {
         return Err(DeserializationError::FailedToSerialize);
     };
     Ok(data)
