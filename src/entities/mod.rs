@@ -4,7 +4,7 @@ pub mod agents;
 pub mod companies;
 
 #[derive(Debug, Clone, Default)]
-pub struct Balances(Vec<f64>);
+pub struct Balances(pub Vec<f64>);
 
 impl Balances {
     pub fn get(&self, agent_id: u64) -> Result<f64, SimulationError> {

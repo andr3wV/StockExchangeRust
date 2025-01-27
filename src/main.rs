@@ -1,6 +1,13 @@
+// Main thing to do now is for agents to hold long for certain companies
+
 use rand::{thread_rng, Rng};
 use rand_distr::{Normal, Distribution};
 use std::collections::HashMap;
+use std::sync::{
+    Arc,
+    atomic::{AtomicBool, Ordering},
+};
+use ctrlc;
 use stocks::{
     entities::{
         agents::{Agent, Agents},
@@ -70,6 +77,15 @@ fn main() {
         a
     };
 
+    /*
+    let len = agents.balances.0.len() as f64;
+    println!("{:?}", agents.balances.0.clone().into_iter().max_by(|a, b| a.partial_cmp(b).unwrap()));
+    println!("{:?}", agents.balances.0.clone().into_iter().min_by(|a, b| a.partial_cmp(b).unwrap()));
+    println!("{:?}", agents.balances.0.into_iter().sum::<f64>() / len);
+
+    std::process::exit(0);
+    */
+
     let mut market = Market::new();
 
     if flag_give_random_stocks_to_random_agents {
@@ -88,7 +104,15 @@ fn main() {
     agents
         .try_failed_offers(&mut rng, &mut todo_transactions, &trade)
         .unwrap();
-    for i in 0..100 {
+
+    let running = Arc::new(AtomicBool::new(true));
+    let r = running.clone();
+    let mut i: i128 = 0;
+    ctrlc::set_handler(move || {
+        r.store(false, Ordering::SeqCst);
+    }).expect("Error setting Ctrl-C handler");
+    while running.load(Ordering::SeqCst) {
+        i += 1;
         agents.try_offers.clear();
         println!("{}", i);
         if i % 5 == 0 {
@@ -166,7 +190,7 @@ fn main() {
             }
         }
     }
-
+    log!(info "Exiting at index {:?}", i);
     log!(info "Saving data");
 
     if let Err(e) = save(agents.save().unwrap(), AGENTS_DATA_FILENAME) {
