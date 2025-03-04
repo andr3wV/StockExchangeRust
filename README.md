@@ -6,7 +6,7 @@ A Rust-based stock market simulation framework designed to model realistic tradi
 Technical Features
 ------------------
 
-*   **Agent-Based Trading System**: Simulates thousands of autonomous agents (10,000 by default) with individual preferences, balances, and investment strategies
+*   **Agent-Based Trading System**: Simulates thousands of autonomous agents with individual preferences, balances, and investment strategies
     
 *   **Dynamic Market Mechanisms**: Implements price discovery, order matching, and trade execution systems
     
@@ -29,8 +29,6 @@ Technical Features
 
 Technical Specifications
 ------------------------
-
-*   **Language**: Rust
     
 *   **Concurrency**: Thread-safe design with atomic operations
     
@@ -38,23 +36,7 @@ Technical Specifications
     
 *   **Testing**: Unit tests for core functionality including asset transfers and trade execution
     
-*   **Data Structures**: Efficient collections for order books, agent holdings, and market tracking
-    
 *   **Serialization**: Binary serialization using bincode for state persistence
-    
-*   **Random Distributions**: Normal distributions for modeling realistic market behaviors
-    
-
-Use Cases
----------
-
-*   Study emergent market behaviors in a controlled environment
-    
-*   Test trading strategies against simulated market conditions
-    
-*   Explore the effects of different market parameters on price discovery
-    
-*   Model how news and company performance affect trading patterns
     
 
 This project was created to better understand stock market dynamics through simulation and experimentation.
